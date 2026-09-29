@@ -1,4 +1,9 @@
 pluginManagement {
+    // Optional mainland-China mirrors, off by default. Must be applied before any repositories are declared.
+    // This build resolves plugins as regular dependencies, so it also needs the Plugin Portal mirror there.
+    settings.extra["chinaMirrors.pluginMirrorForDependencies"] = true
+    apply(from = "../gradle/china-mirrors.settings.gradle.kts")
+
     repositories {
         gradlePluginPortal()
     }

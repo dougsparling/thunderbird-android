@@ -3,6 +3,9 @@ rootProject.name = "components"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
+    // Optional mainland-China mirrors, off by default. Must be applied before any repositories are declared.
+    apply(from = "../gradle/china-mirrors.settings.gradle.kts")
+
     includeBuild("../build-plugin")
     repositories {
         google {
