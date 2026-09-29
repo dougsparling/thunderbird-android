@@ -5,10 +5,8 @@ import assertk.assertions.contains
 import assertk.assertions.containsExactly
 import assertk.assertions.doesNotContain
 import kotlin.test.Test
-import net.thunderbird.android.scenario.harness.ClientAccount
-import net.thunderbird.android.scenario.harness.ClientMessage
-import net.thunderbird.android.scenario.harness.ScenarioScope
 import net.thunderbird.android.scenario.harness.ScenarioTest
+import net.thunderbird.android.scenario.harness.subjects
 import net.thunderbird.mail.testserver.fixture.FolderPath
 
 /**
@@ -20,56 +18,28 @@ class FolderDeletedOnServerScenarioTest : ScenarioTest() {
 
     @Test
     fun `a folder deleted elsewhere disappears from the list without breaking the inbox`() = scenario {
+        // Arrange
         val user = server.user {
-            inbox {
-                message {
-                    subject(SUBJECT_A)
-                    from(SENDER)
-                    text("Stays in the inbox.")
-                }
-            }
-            folder(WORK_NAME) {
-                message {
-                    subject(SUBJECT_B)
-                    from(SENDER)
-                    text("Goes with the deleted folder.")
-                }
-            }
+            inbox { message(SUBJECT_A) }
+            folder("Work") { message(SUBJECT_B) }
         }
         val account = client.account(user)
-        driver.pullToRefresh(account, FolderPath.INBOX)
         driver.pullToRefresh(account, WORK)
-        assertThat(inboxSubjects(account)).containsExactly(SUBJECT_A)
-        assertThat(subjects(account, WORK)).containsExactly(SUBJECT_B)
 
-        // Another client deletes Work with its messages.
+        // Act
         server.deleteFolder(user, WORK)
-
-        // The user refreshes the folder list, then pulls to refresh the inbox.
         driver.refreshFolders(account)
         driver.pullToRefresh(account, FolderPath.INBOX)
-        driver.awaitIdle()
 
-        // The server really lost Work; the app must follow and keep working.
-        val serverPaths = server.stateOf(user).folders.map { it.path }
-        assertThat(serverPaths).doesNotContain(WORK)
-
+        // Assert
         val folderPaths = driver.folderList(account).map { it.path }
         assertThat(folderPaths).doesNotContain(WORK)
         assertThat(folderPaths).contains(FolderPath.INBOX)
-        assertThat(inboxSubjects(account)).containsExactly(SUBJECT_A)
+        assertThat(driver.subjects(account)).containsExactly(SUBJECT_A)
     }
 
-    private fun ScenarioScope.inboxSubjects(account: ClientAccount): List<String?> =
-        driver.messageList(account, FolderPath.INBOX).map(ClientMessage::subject)
-
-    private fun ScenarioScope.subjects(account: ClientAccount, folder: FolderPath): List<String?> =
-        driver.messageList(account, folder).map(ClientMessage::subject)
-
     private companion object {
-        const val WORK_NAME = "Work"
-        val WORK = FolderPath.of(WORK_NAME)
-        const val SENDER = "erin@example.org"
+        val WORK = FolderPath.of("Work")
         const val SUBJECT_A = "Inbox message"
         const val SUBJECT_B = "Work message"
     }

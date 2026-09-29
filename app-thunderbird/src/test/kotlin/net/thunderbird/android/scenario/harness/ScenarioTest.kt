@@ -17,16 +17,27 @@ import org.robolectric.annotation.Config
  * class SomethingScenarioTest : ScenarioTest() {
  *     @Test
  *     fun `what the user experiences`() = scenario {
- *         val user = server.user { inbox { message { subject("Hi") } } }
+ *         // Arrange
+ *         val user = server.user { inbox() }
  *         val account = client.account(user)
+ *         server.deliver(user) { inbox { message("Hi") } }
+ *
+ *         // Act
  *         driver.pullToRefresh(account, FolderPath.INBOX)
- *         assertThat(driver.messageList(account, FolderPath.INBOX)).hasSize(1)
+ *
+ *         // Assert
+ *         assertThat(driver.subjects(account)).containsExactly("Hi")
  *     }
  * }
  * ```
  *
  * Rules:
  * - One test method per class. Each class runs in its own JVM, see [ScenarioRule].
+ * - Arrange, Act, Assert, as in the project's other tests. A scenario whose behaviour unfolds in steps (e.g. time
+ *   passing twice) repeats the Act/Assert pair; checks that the arranged state is what the scenario needs, such as
+ *   the app showing a message before the user acts on it, end the Arrange part.
+ * - Adding an account runs its first mail check (INBOX and the folder list) unless it has a check interval, so a
+ *   scenario doesn't need to refresh INBOX or the folder list before acting.
  * - Each scenario gets fresh server users, so scenarios can run in parallel against one server.
  * - The app connects through a per-test fault proxy; use `network { }` to inject faults. When a scenario fails, the
  *   proxy transcript is printed.

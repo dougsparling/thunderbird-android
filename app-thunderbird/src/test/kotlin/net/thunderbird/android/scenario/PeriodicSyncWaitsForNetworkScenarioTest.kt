@@ -5,11 +5,8 @@ import assertk.assertions.containsExactly
 import assertk.assertions.doesNotContain
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
-import net.thunderbird.android.scenario.harness.ClientAccount
-import net.thunderbird.android.scenario.harness.ClientMessage
-import net.thunderbird.android.scenario.harness.ScenarioScope
 import net.thunderbird.android.scenario.harness.ScenarioTest
-import net.thunderbird.mail.testserver.fixture.FolderPath
+import net.thunderbird.android.scenario.harness.subjects
 
 /**
  * Periodic sync while the device is offline. INBOX has a 15-minute check interval and has been synced once. The device
@@ -21,50 +18,36 @@ class PeriodicSyncWaitsForNetworkScenarioTest : ScenarioTest() {
 
     @Test
     fun `periodic sync that came due while offline runs when the device is back online`() = scenario {
+        // Arrange
         val user = server.user {
-            inbox {
-                message {
-                    subject(FIRST_SUBJECT)
-                    from(SENDER)
-                    text("Already waiting when the account is added.")
-                }
-            }
+            inbox { message(FIRST_SUBJECT) }
         }
         val account = client.account(user, checkIntervalMinutes = CHECK_INTERVAL_MINUTES)
-
-        // The first periodic sync is due right after setup; INBOX has now been synced once.
+        // The first periodic sync is due right after setup.
         device.advanceTime(1.minutes)
-        assertThat(inboxSubjects(account)).containsExactly(FIRST_SUBJECT)
+        assertThat(driver.subjects(account)).containsExactly(FIRST_SUBJECT)
 
-        // The device is offline when the next periodic run comes due.
+        // Act
         goOffline()
         device.advanceTime(CHECK_INTERVAL_MINUTES.minutes)
+        server.deliver(user) {
+            inbox { message(SECOND_SUBJECT) }
+        }
+
+        // Assert
         // The app waited for the network instead of trying the server.
         assertThat(proxy.transcript()).doesNotContain("refuse (rule: refuseConnections)")
 
-        server.deliver(user) {
-            inbox {
-                message {
-                    subject(SECOND_SUBJECT)
-                    from(SENDER)
-                    text("Arrived while the device was offline.")
-                }
-            }
-        }
-
+        // Act
         // Back online, the overdue sync runs right away; no time passes.
         goOnline()
-        assertThat(inboxSubjects(account)).containsExactly(SECOND_SUBJECT, FIRST_SUBJECT)
-    }
 
-    private fun ScenarioScope.inboxSubjects(account: ClientAccount): List<String?> = driver.messageList(
-        account,
-        FolderPath.INBOX,
-    ).map(ClientMessage::subject)
+        // Assert
+        assertThat(driver.subjects(account)).containsExactly(SECOND_SUBJECT, FIRST_SUBJECT)
+    }
 
     private companion object {
         const val CHECK_INTERVAL_MINUTES = 15
-        const val SENDER = "frank@example.org"
         const val FIRST_SUBJECT = "Already there"
         const val SECOND_SUBJECT = "Arrived while offline"
     }

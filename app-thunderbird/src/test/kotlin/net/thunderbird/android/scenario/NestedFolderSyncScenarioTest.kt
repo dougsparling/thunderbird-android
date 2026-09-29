@@ -10,26 +10,28 @@ import net.thunderbird.android.scenario.harness.ScenarioTest
 import net.thunderbird.mail.testserver.fixture.FolderPath
 import net.thunderbird.mail.testserver.fixture.SystemFlag
 
+/**
+ * An unread message in a nested folder (`Archive/2024`) shows up in the app with its subject and sender, unread, once
+ * the user pulls that folder. Only looking at it must not mark it read on the server.
+ */
 class NestedFolderSyncScenarioTest : ScenarioTest() {
 
     @Test
     fun `unread message in a nested folder shows up unread and stays unread on the server`() = scenario {
+        // Arrange
         val user = server.user {
-            inbox()
             folder("Archive") {
                 folder("2024") {
-                    message {
-                        subject(SUBJECT)
-                        from("$SENDER_NAME <$SENDER_ADDRESS>")
-                        text("Minutes of the 2024 planning meeting.")
-                    }
+                    message(SUBJECT) { from("$SENDER_NAME <$SENDER_ADDRESS>") }
                 }
             }
         }
         val account = client.account(user)
 
+        // Act
         driver.pullToRefresh(account, ARCHIVE_2024)
 
+        // Assert
         assertThat(driver.folderList(account).map { it.path }).contains(ARCHIVE_2024)
         assertThat(driver.messageList(account, ARCHIVE_2024)).containsExactly(
             ClientMessage(

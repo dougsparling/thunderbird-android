@@ -1,14 +1,14 @@
 package net.thunderbird.android.scenario
 
 import assertk.assertThat
-import assertk.assertions.contains
+import assertk.assertions.containsAll
 import assertk.assertions.hasSize
 import assertk.assertions.isNotNull
 import assertk.assertions.matches
 import assertk.assertions.single
 import kotlin.test.Test
-import net.thunderbird.android.scenario.harness.ClientMessage
 import net.thunderbird.android.scenario.harness.ScenarioTest
+import net.thunderbird.android.scenario.harness.subjects
 import net.thunderbird.mail.testserver.fixture.FolderPath
 
 /**
@@ -16,7 +16,8 @@ import net.thunderbird.mail.testserver.fixture.FolderPath
  * unmatched multipart boundary, an unknown charset, NUL bytes in the body, raw 8-bit characters in the headers, a
  * message with neither Date nor Message-ID, and a header line far longer than the standard allows, next to two
  * well-formed messages. Pulling to refresh must list every message with its subject, so one malformed message never
- * hides the rest of the mailbox.
+ * hides the rest of the mailbox. The messages arrive after the account is set up, so the pull to refresh is the sync
+ * that meets them.
  *
  * Undeclared 8-bit header bytes have no defined charset. Today the app shows the Latin-1 subject's accented letters as
  * replacement characters; the test only requires that the ASCII letters around them survive, so a better guess also
@@ -26,7 +27,10 @@ class MalformedMessagesScenarioTest : ScenarioTest() {
 
     @Test
     fun `pull to refresh lists malformed and well-formed messages`() = scenario {
-        val user = server.user {
+        // Arrange
+        val user = server.user { inbox() }
+        val account = client.account(user)
+        server.deliver(user) {
             inbox {
                 raw(brokenMultipartBoundary(), subject = BROKEN_BOUNDARY_SUBJECT)
                 raw(unknownCharset(), subject = UNKNOWN_CHARSET_SUBJECT)
@@ -34,27 +38,18 @@ class MalformedMessagesScenarioTest : ScenarioTest() {
                 raw(rawEightBitHeaders(), subject = EIGHT_BIT_METADATA_SUBJECT)
                 raw(noDateOrMessageId(), subject = NO_DATE_SUBJECT)
                 raw(veryLongHeaderLine(), subject = VERY_LONG_HEADER_SUBJECT)
-                message {
-                    subject(WELL_FORMED_SUBJECT_1)
-                    from("alice@example.org")
-                    text("A normal message.")
-                }
-                message {
-                    subject(WELL_FORMED_SUBJECT_2)
-                    from("bob@example.org")
-                    text("Another normal message.")
-                }
+                message(WELL_FORMED_SUBJECT_1)
+                message(WELL_FORMED_SUBJECT_2)
             }
         }
-        val account = client.account(user)
 
+        // Act
         driver.pullToRefresh(account, FolderPath.INBOX)
 
-        val subjects = driver.messageList(account, FolderPath.INBOX).map(ClientMessage::subject)
-
-        // All eight messages are listed, each with a subject.
+        // Assert
+        val subjects = driver.subjects(account)
         assertThat(subjects).hasSize(8)
-        KNOWN_SUBJECTS.forEach { subject -> assertThat(subjects).contains(subject) }
+        assertThat(subjects).containsAll(*KNOWN_SUBJECTS.toTypedArray())
         // The one other listed message is the 8-bit one, with its ASCII letters intact.
         assertThat(subjects.filterNot { it in KNOWN_SUBJECTS }).single().isNotNull().matches(EIGHT_BIT_SUBJECT_SHOWN)
     }

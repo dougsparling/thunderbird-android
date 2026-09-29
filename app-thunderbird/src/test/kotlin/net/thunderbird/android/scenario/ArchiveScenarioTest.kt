@@ -4,8 +4,8 @@ import assertk.assertThat
 import assertk.assertions.containsExactly
 import assertk.assertions.isEmpty
 import kotlin.test.Test
-import net.thunderbird.android.scenario.harness.ClientMessage
 import net.thunderbird.android.scenario.harness.ScenarioTest
+import net.thunderbird.android.scenario.harness.subjects
 import net.thunderbird.mail.testserver.fixture.FolderPath
 import net.thunderbird.mail.testserver.fixture.SpecialUse
 
@@ -17,36 +17,28 @@ class ArchiveScenarioTest : ScenarioTest() {
 
     @Test
     fun `archiving a message puts it in the archive and removes it from the inbox`() = scenario {
+        // Arrange
         val user = server.user {
-            inbox {
-                message {
-                    subject(SUBJECT)
-                    from(SENDER)
-                    text("Archive me.")
-                }
-            }
+            inbox { message(SUBJECT) }
             folder("Archive", specialUse = SpecialUse.ARCHIVE)
         }
         val account = client.account(user)
-        driver.pullToRefresh(account, FolderPath.INBOX)
-        driver.refreshFolders(account)
 
+        // Act
         driver.archive(account, FolderPath.INBOX, SUBJECT)
-
         driver.pullToRefresh(account, FolderPath.INBOX)
         driver.pullToRefresh(account, ARCHIVE)
 
+        // Assert
         val state = server.stateOf(user)
-        assertThat(state.folder(FolderPath.INBOX).messages).isEmpty()
-        assertThat(state.folder(ARCHIVE).messages.map { it.subject }).containsExactly(SUBJECT)
-
-        assertThat(driver.messageList(account, FolderPath.INBOX)).isEmpty()
-        assertThat(driver.messageList(account, ARCHIVE).map(ClientMessage::subject)).containsExactly(SUBJECT)
+        assertThat(state.folder(FolderPath.INBOX).subjects).isEmpty()
+        assertThat(state.folder(ARCHIVE).subjects).containsExactly(SUBJECT)
+        assertThat(driver.subjects(account)).isEmpty()
+        assertThat(driver.subjects(account, ARCHIVE)).containsExactly(SUBJECT)
     }
 
     private companion object {
         const val SUBJECT = "Old receipt"
-        const val SENDER = "frank@example.org"
         val ARCHIVE = FolderPath.of("Archive")
     }
 }

@@ -5,8 +5,8 @@ import assertk.assertions.contains
 import assertk.assertions.containsExactly
 import assertk.assertions.doesNotContain
 import kotlin.test.Test
-import net.thunderbird.android.scenario.harness.ClientMessage
 import net.thunderbird.android.scenario.harness.ScenarioTest
+import net.thunderbird.android.scenario.harness.subjects
 import net.thunderbird.mail.testserver.fixture.FolderPath
 
 /**
@@ -18,38 +18,35 @@ class WrongPasswordScenarioTest : ScenarioTest() {
 
     @Test
     fun `wrong password shows an auth error and fixing it clears the error and syncs inbox`() = scenario {
+        // Arrange
         val user = server.user {
-            inbox {
-                message {
-                    subject(SUBJECT)
-                    from(SENDER)
-                    text("Waiting for a correct password.")
-                }
-            }
+            inbox { message(SUBJECT) }
         }
         val account = client.account(user, password = WRONG_PASSWORD)
 
-        // The folder list can't be fetched without logging in, so the app must show the user that the login failed.
+        // Act
+        // The folder list can't be fetched without logging in.
         driver.refreshFolders(account)
+
+        // Assert
         eventually {
             assertThat(device.notifications().map { it.title }).contains(AUTH_ERROR_TITLE)
         }
 
-        // The user saves the correct password, refreshes the folder list (INBOX only appears once a login succeeds)
-        // and then pulls to refresh INBOX.
+        // Act
+        // INBOX only appears in the folder list once a login succeeds.
         driver.updatePassword(account, user.password)
         driver.refreshFolders(account)
         driver.pullToRefresh(account, FolderPath.INBOX)
 
+        // Assert
         eventually {
             assertThat(device.notifications().map { it.title }).doesNotContain(AUTH_ERROR_TITLE)
         }
-        assertThat(driver.messageList(account, FolderPath.INBOX).map(ClientMessage::subject))
-            .containsExactly(SUBJECT)
+        assertThat(driver.subjects(account)).containsExactly(SUBJECT)
     }
 
     private companion object {
-        const val SENDER = "grace@example.org"
         const val SUBJECT = "Private"
         const val AUTH_ERROR_TITLE = "Authentication failed"
         const val WRONG_PASSWORD = "not-the-right-password"

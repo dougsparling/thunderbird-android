@@ -5,7 +5,8 @@ import assertk.assertions.hasSize
 import assertk.assertions.isEmpty
 import kotlin.test.Test
 import net.thunderbird.android.scenario.harness.ScenarioTest
-import net.thunderbird.mail.testserver.fixture.FolderPath
+import net.thunderbird.android.scenario.harness.TRASH
+import net.thunderbird.android.scenario.harness.subjects
 
 /**
  * The Trash folder holds three messages, already synced in the app. When the user empties the trash, the messages
@@ -16,46 +17,25 @@ class EmptyTrashScenarioTest : ScenarioTest() {
 
     @Test
     fun `emptying the trash removes every message from the server and the app`() = scenario {
+        // Arrange
         val user = server.user {
-            folder(TRASH_FOLDER) {
-                message {
-                    subject(FIRST_SUBJECT)
-                    from(SENDER)
-                    text("Throw me away.")
-                }
-                message {
-                    subject(SECOND_SUBJECT)
-                    from(SENDER)
-                    text("Throw me away too.")
-                }
-                message {
-                    subject(THIRD_SUBJECT)
-                    from(SENDER)
-                    text("And me.")
-                }
+            folder("Trash") {
+                message("Old newsletter")
+                message("Expired offer")
+                message("Discarded draft")
             }
         }
         val account = client.account(user)
-
-        // Bring the trash folder's messages into the app, so emptying the trash has something to work on.
         driver.pullToRefresh(account, TRASH)
-        assertThat(server.stateOf(user).folder(TRASH).messages).hasSize(3)
-        assertThat(driver.messageList(account, TRASH)).hasSize(3)
+        assertThat(driver.subjects(account, TRASH)).hasSize(3)
 
+        // Act
         driver.emptyTrash(account)
 
-        // The server lists a message even when it is only flagged \Deleted,
-        // so an empty folder means they were expunged.
-        assertThat(server.stateOf(user).folder(TRASH).messages).isEmpty()
-        assertThat(driver.messageList(account, TRASH)).isEmpty()
-    }
-
-    private companion object {
-        const val TRASH_FOLDER = "Trash"
-        const val SENDER = "bob@example.org"
-        const val FIRST_SUBJECT = "Old newsletter"
-        const val SECOND_SUBJECT = "Expired offer"
-        const val THIRD_SUBJECT = "Discarded draft"
-        val TRASH = FolderPath.of(TRASH_FOLDER)
+        // Assert
+        // The server lists a message even when it is only flagged \Deleted, so an empty folder means they were
+        // expunged.
+        assertThat(server.stateOf(user).folder(TRASH).subjects).isEmpty()
+        assertThat(driver.subjects(account, TRASH)).isEmpty()
     }
 }

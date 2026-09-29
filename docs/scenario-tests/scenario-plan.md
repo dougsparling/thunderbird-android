@@ -81,8 +81,8 @@ C7  WrongPasswordScenarioTest — account with wrong password; pull to refresh: 
     tap action/text); user fixes password; refresh: notification cleared, INBOX synced.
 C8 [CHECK]  PushResumesAfterDisconnectScenarioTest — push listening; proxy.disconnectAll(); deliver B; advance time
     (IDLE retry/refresh interval): B appears; app listening again. (Needs alarms in advanceTime.)
-C9  PushSeesOtherClientChangesScenarioTest — push listening; other client stars A, expunges B: eventually A
-    starred, B gone.
+C9  PushSeesOtherClientStarScenarioTest / PushSeesOtherClientExpungeScenarioTest — push listening; other client
+    stars A (expunges B): eventually A starred (B gone).
 C10 [CHECK]  PushAcrossOfflineScenarioTest — push listening; device offline (+proxy down); deliver B; online: B arrives,
     listening again.
 C11 [CHECK]  PeriodicSyncRetryAfterNetworkFailureScenarioTest — interval 15m; first run offline; online; advance by

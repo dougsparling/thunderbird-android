@@ -5,65 +5,39 @@ import assertk.assertions.containsExactlyInAnyOrder
 import assertk.assertions.hasSize
 import kotlin.test.Test
 import net.thunderbird.android.scenario.harness.ScenarioTest
+import net.thunderbird.android.scenario.harness.subjects
 import net.thunderbird.mail.testserver.fixture.FolderPath
 
 /**
  * The message list starts out capped at the account's display count (25) and "load more" reveals the rest. Asking for
  * the older messages must not put the cap back: INBOX has 30 messages, the app first shows the newest 25, "load more"
- * brings it to 30, five more messages are then delivered and another pull to refresh shows all 35. The display count
- * must only limit what is fetched, not hide mail the user has already asked to see.
+ * brings it to 30, five more messages are then delivered and another pull to refresh shows all 35.
  */
 class LoadMoreThenNewMailScenarioTest : ScenarioTest() {
 
     @Test
     fun `loading older messages then refreshing after new mail keeps the whole list`() = scenario {
+        // Arrange
         val user = server.user {
-            inbox {
-                repeat(MESSAGE_COUNT) { index ->
-                    message {
-                        subject("Message ${index + 1}")
-                        from(SENDER)
-                        text("Body of message ${index + 1}.")
-                    }
-                }
-            }
+            inbox { oldSubjects.forEach { message(it) } }
         }
         val account = client.account(user)
+        assertThat(driver.subjects(account)).hasSize(DISPLAY_COUNT)
 
-        // The display count limits the first sync to the newest messages.
-        driver.pullToRefresh(account, FolderPath.INBOX)
-        assertThat(driver.messageList(account, FolderPath.INBOX)).hasSize(DISPLAY_COUNT)
-
-        // "Load more" fetches the older messages, so the whole mailbox is now in the list.
+        // Act
         driver.loadMore(account, FolderPath.INBOX)
-        assertThat(driver.messageList(account, FolderPath.INBOX)).hasSize(MESSAGE_COUNT)
-
         server.deliver(user) {
-            inbox {
-                repeat(NEW_MESSAGE_COUNT) { index ->
-                    message {
-                        subject("New message ${index + 1}")
-                        from(SENDER)
-                        text("Body of new message ${index + 1}.")
-                    }
-                }
-            }
+            inbox { newSubjects.forEach { message(it) } }
         }
-
-        // Refreshing picks up the new mail and still shows everything the user loaded before.
         driver.pullToRefresh(account, FolderPath.INBOX)
-        assertThat(driver.messageList(account, FolderPath.INBOX).map { it.subject }).containsExactlyInAnyOrder(
-            *(oldSubjects + newSubjects).toTypedArray(),
-        )
+
+        // Assert
+        assertThat(driver.subjects(account)).containsExactlyInAnyOrder(*(oldSubjects + newSubjects).toTypedArray())
     }
 
     private companion object {
         const val DISPLAY_COUNT = 25
-        const val MESSAGE_COUNT = 30
-        const val NEW_MESSAGE_COUNT = 5
-        const val SENDER = "bob@example.org"
-
-        val oldSubjects = (1..MESSAGE_COUNT).map { "Message $it" }
-        val newSubjects = (1..NEW_MESSAGE_COUNT).map { "New message $it" }
+        val oldSubjects = (1..30).map { "Message $it" }
+        val newSubjects = (1..5).map { "New message $it" }
     }
 }

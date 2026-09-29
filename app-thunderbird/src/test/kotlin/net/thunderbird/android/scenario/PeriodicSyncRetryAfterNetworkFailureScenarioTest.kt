@@ -5,11 +5,8 @@ import assertk.assertions.contains
 import assertk.assertions.containsExactly
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
-import net.thunderbird.android.scenario.harness.ClientAccount
-import net.thunderbird.android.scenario.harness.ClientMessage
-import net.thunderbird.android.scenario.harness.ScenarioScope
 import net.thunderbird.android.scenario.harness.ScenarioTest
-import net.thunderbird.mail.testserver.fixture.FolderPath
+import net.thunderbird.android.scenario.harness.subjects
 
 /**
  * Periodic sync retries after the server couldn't be reached. INBOX has a 15-minute check interval and has been synced
@@ -25,57 +22,36 @@ class PeriodicSyncRetryAfterNetworkFailureScenarioTest : ScenarioTest() {
 
     @Test
     fun `periodic sync retries and fetches mail after the server was unreachable`() = scenario {
+        // Arrange
         val user = server.user {
-            inbox {
-                message {
-                    subject(FIRST_SUBJECT)
-                    from(SENDER)
-                    text("Already waiting when the account is added.")
-                }
-            }
+            inbox { message(FIRST_SUBJECT) }
         }
         val account = client.account(user, checkIntervalMinutes = CHECK_INTERVAL_MINUTES)
-
-        // The first periodic sync is due right after setup; INBOX has now been synced once.
+        // The first periodic sync is due right after setup.
         device.advanceTime(1.minutes)
-        assertThat(inboxSubjects(account)).containsExactly(FIRST_SUBJECT)
-
+        assertThat(driver.subjects(account)).containsExactly(FIRST_SUBJECT)
         // The server can't be reached, though the device is online: new connections are refused and open ones dropped.
         network { refuseConnections() }
         proxy.disconnectAll()
-
         // The next periodic run is due and fails.
         device.advanceTime(CHECK_INTERVAL_MINUTES.minutes)
-        // Guards against a vacuous pass: the app really did try to reach the server and failed.
         assertThat(proxy.transcript()).contains("refuse (rule: refuseConnections)")
-
         server.deliver(user) {
-            inbox {
-                message {
-                    subject(SECOND_SUBJECT)
-                    from(SENDER)
-                    text("Arrived while the server was unreachable.")
-                }
-            }
+            inbox { message(SECOND_SUBJECT) }
         }
 
-        // The server is reachable again.
+        // Act
         network { }
-
         // Only the retry is due in the next backoff delay; the next regular run is 10 minutes after that.
         device.advanceTime(BACKOFF_DELAY_MINUTES.minutes)
-        assertThat(inboxSubjects(account)).containsExactly(SECOND_SUBJECT, FIRST_SUBJECT)
-    }
 
-    private fun ScenarioScope.inboxSubjects(account: ClientAccount): List<String?> = driver.messageList(
-        account,
-        FolderPath.INBOX,
-    ).map(ClientMessage::subject)
+        // Assert
+        assertThat(driver.subjects(account)).containsExactly(SECOND_SUBJECT, FIRST_SUBJECT)
+    }
 
     private companion object {
         const val CHECK_INTERVAL_MINUTES = 15
         const val BACKOFF_DELAY_MINUTES = 5
-        const val SENDER = "frank@example.org"
         const val FIRST_SUBJECT = "Already there"
         const val SECOND_SUBJECT = "Arrived while unreachable"
     }
