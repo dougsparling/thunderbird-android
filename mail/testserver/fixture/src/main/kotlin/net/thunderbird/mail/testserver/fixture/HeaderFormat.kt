@@ -99,7 +99,7 @@ internal object HeaderFormat {
             if (char.isAsciiLetterOrDigit() || char in ATTRIBUTE_CHAR_SPECIALS) {
                 char.toString()
             } else {
-                "%%%02X".format(byte.toInt() and BYTE_MASK)
+                "%%%02X".format(Locale.ROOT, byte.toInt() and BYTE_MASK)
             }
         }
     }

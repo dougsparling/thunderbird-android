@@ -176,9 +176,13 @@ class FakeImapServer(
 
         private fun create(args: List<FakeArg>): String {
             val name = args[0].text
-            if (mailboxes.containsKey(name)) return "NO [ALREADYEXISTS] Mailbox exists"
             val parent = delimiter?.let { name.substringBeforeLast(it, missingDelimiterValue = "") }.orEmpty()
-            if (parent.isNotEmpty() && !mailboxes.containsKey(parent)) return "NO [NONEXISTENT] Parent missing"
+            val error = when {
+                mailboxes.containsKey(name) -> "NO [ALREADYEXISTS] Mailbox exists"
+                parent.isNotEmpty() && !mailboxes.containsKey(parent) -> "NO [NONEXISTENT] Parent missing"
+                else -> null
+            }
+            if (error != null) return error
             val use = (args.getOrNull(1) as? FakeArg.Group)?.items?.getOrNull(1) as? FakeArg.Group
             mailboxes[name] = FakeMailbox(use?.items?.map { it.text }.orEmpty())
             return "OK CREATE completed"
@@ -305,15 +309,20 @@ class FakeImapServer(
         private fun readAtom(): String {
             val builder = StringBuilder()
             var depth = 0
-            while (true) {
-                val c = peek()
-                if (c < 0 || c == '\r'.code || c == '\n'.code) break
-                if (depth == 0 && (c == ' '.code || c == '('.code || c == ')'.code)) break
+            var c = peek()
+            while (!endsAtom(c, depth)) {
                 if (c == '['.code) depth++
                 if (c == ']'.code) depth--
                 builder.append(next().toChar())
+                c = peek()
             }
             return builder.toString()
+        }
+
+        private fun endsAtom(c: Int, depth: Int): Boolean {
+            val endOfLine = c < 0 || c == '\r'.code || c == '\n'.code
+            val separator = c == ' '.code || c == '('.code || c == ')'.code
+            return endOfLine || (depth == 0 && separator)
         }
 
         private fun skipSpace() {

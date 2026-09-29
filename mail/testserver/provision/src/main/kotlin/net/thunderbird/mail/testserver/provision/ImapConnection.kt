@@ -188,7 +188,7 @@ internal class ImapConnection private constructor(
             try {
                 socket.connect(InetSocketAddress(host, port), timeouts.connect.inWholeMilliseconds.toInt())
                 socket.soTimeout = timeouts.read.inWholeMilliseconds.toInt()
-                return ImapConnection(socket).also { it.readGreeting() }
+                return ImapConnection(socket).apply { readGreeting() }
             } catch (e: IOException) {
                 socket.close()
                 throw e

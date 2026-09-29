@@ -31,7 +31,9 @@ private const val BYTE_MASK = 0xff
 private val random = SecureRandom()
 private val NON_ALPHANUMERIC = Regex("[^a-z0-9]+")
 
-/** A unique, lowercase login local part: the sanitised [nameHint] plus a random hex suffix, e.g. `sync-test-3fa9c2d1`. */
+/**
+ * A unique, lowercase login local part: the sanitised [nameHint] plus a random hex suffix, e.g. `sync-test-3fa9c2d1`.
+ */
 internal fun uniqueLocalPart(nameHint: String): String {
     val sanitized = nameHint.lowercase()
         .replace(NON_ALPHANUMERIC, "-")

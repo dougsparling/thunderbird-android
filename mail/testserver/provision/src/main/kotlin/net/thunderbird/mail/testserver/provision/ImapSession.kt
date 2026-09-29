@@ -37,7 +37,10 @@ internal class ImapSession(private val connection: ImapConnection) : Closeable {
         connection.fetchCapabilities()
     }
 
-    /** `LIST "" ""`: the hierarchy delimiter, or null for a flat server. Falls back to [list] if the server says nothing. */
+    /**
+     * `LIST "" ""`: the hierarchy delimiter, or null for a flat server. Falls back to [list] if the server says
+     * nothing.
+     */
     fun hierarchyDelimiter(): Char? {
         val root = parseListEntries(connection.execute("LIST", listOf(EMPTY, EMPTY)))
         return root.firstOrNull()?.delimiter ?: list().firstNotNullOfOrNull { it.delimiter }

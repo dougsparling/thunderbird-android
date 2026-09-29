@@ -2,6 +2,7 @@ package net.thunderbird.mail.testserver.fixture
 
 import java.io.ByteArrayOutputStream
 import java.util.Base64
+import java.util.Locale
 
 /**
  * Renders a message body tree to RFC 822 bytes with CRLF line endings.
@@ -131,7 +132,7 @@ internal object QuotedPrintable {
         line.forEachIndexed { index, byte ->
             val value = byte.toInt() and BYTE_MASK
             val isLast = index == line.lastIndex
-            val token = if (isLiteral(value, isLast)) value.toChar().toString() else "=%02X".format(value)
+            val token = if (isLiteral(value, isLast)) value.toChar().toString() else "=%02X".format(Locale.ROOT, value)
 
             // Leave room for the "=" of a soft line break.
             if (lineLength + token.length > MAX_LINE_LENGTH - 1) {
