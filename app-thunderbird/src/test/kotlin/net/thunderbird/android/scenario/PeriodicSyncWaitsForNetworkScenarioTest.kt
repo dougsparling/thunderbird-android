@@ -1,8 +1,8 @@
 package net.thunderbird.android.scenario
 
 import assertk.assertThat
-import assertk.assertions.contains
 import assertk.assertions.containsExactly
+import assertk.assertions.doesNotContain
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
 import net.thunderbird.android.scenario.harness.ClientAccount
@@ -12,19 +12,15 @@ import net.thunderbird.android.scenario.harness.ScenarioTest
 import net.thunderbird.mail.testserver.fixture.FolderPath
 
 /**
- * Periodic sync retries after the server couldn't be reached. INBOX has a 15-minute check interval and has been synced
- * once. The next periodic run finds the device online but the server unreachable, and fails; a new message arrives;
- * the server becomes reachable again. The retry, due one backoff delay (5 minutes) after the failure, must fetch the
- * new message. A failed check must not be recorded as though INBOX had been checked: the retry would then skip INBOX
- * as "checked too recently" and the new mail would wait for the next interval.
- *
- * The device stays online throughout. While it's offline Android doesn't run the sync at all, see
- * [PeriodicSyncWaitsForNetworkScenarioTest].
+ * Periodic sync while the device is offline. INBOX has a 15-minute check interval and has been synced once. The device
+ * goes offline before the next periodic run is due, and a new message arrives. The app must not try to reach the
+ * server while offline, and the overdue sync must run as soon as the device is back online, without waiting for the
+ * next interval.
  */
-class PeriodicSyncRetryAfterNetworkFailureScenarioTest : ScenarioTest() {
+class PeriodicSyncWaitsForNetworkScenarioTest : ScenarioTest() {
 
     @Test
-    fun `periodic sync retries and fetches mail after the server was unreachable`() = scenario {
+    fun `periodic sync that came due while offline runs when the device is back online`() = scenario {
         val user = server.user {
             inbox {
                 message {
@@ -40,30 +36,24 @@ class PeriodicSyncRetryAfterNetworkFailureScenarioTest : ScenarioTest() {
         device.advanceTime(1.minutes)
         assertThat(inboxSubjects(account)).containsExactly(FIRST_SUBJECT)
 
-        // The server can't be reached, though the device is online: new connections are refused and open ones dropped.
-        network { refuseConnections() }
-        proxy.disconnectAll()
-
-        // The next periodic run is due and fails.
+        // The device is offline when the next periodic run comes due.
+        goOffline()
         device.advanceTime(CHECK_INTERVAL_MINUTES.minutes)
-        // Guards against a vacuous pass: the app really did try to reach the server and failed.
-        assertThat(proxy.transcript()).contains("refuse (rule: refuseConnections)")
+        // The app waited for the network instead of trying the server.
+        assertThat(proxy.transcript()).doesNotContain("refuse (rule: refuseConnections)")
 
         server.deliver(user) {
             inbox {
                 message {
                     subject(SECOND_SUBJECT)
                     from(SENDER)
-                    text("Arrived while the server was unreachable.")
+                    text("Arrived while the device was offline.")
                 }
             }
         }
 
-        // The server is reachable again.
-        network { }
-
-        // Only the retry is due in the next backoff delay; the next regular run is 10 minutes after that.
-        device.advanceTime(BACKOFF_DELAY_MINUTES.minutes)
+        // Back online, the overdue sync runs right away; no time passes.
+        goOnline()
         assertThat(inboxSubjects(account)).containsExactly(SECOND_SUBJECT, FIRST_SUBJECT)
     }
 
@@ -74,9 +64,8 @@ class PeriodicSyncRetryAfterNetworkFailureScenarioTest : ScenarioTest() {
 
     private companion object {
         const val CHECK_INTERVAL_MINUTES = 15
-        const val BACKOFF_DELAY_MINUTES = 5
         const val SENDER = "frank@example.org"
         const val FIRST_SUBJECT = "Already there"
-        const val SECOND_SUBJECT = "Arrived while unreachable"
+        const val SECOND_SUBJECT = "Arrived while offline"
     }
 }

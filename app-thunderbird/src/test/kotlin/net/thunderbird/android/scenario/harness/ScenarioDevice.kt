@@ -14,6 +14,7 @@ import android.net.NetworkInfo
 import android.os.Looper
 import android.os.SystemClock
 import androidx.work.Configuration
+import androidx.work.NetworkType
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerFactory
@@ -41,8 +42,9 @@ import org.robolectric.shadows.ShadowSystemClock
  * camera not (yet) granted.
  *
  * Background work runs as Android would run it: WorkManager judges what is due by the scenario's clock, and due work
- * runs whenever the device settles, e.g. after [advanceTime]. Alarms the app sets with `AlarmManager` (push uses them
- * to refresh IDLE connections and to retry) go off the same way, once [advanceTime] has moved the clock past them.
+ * runs whenever the device settles, e.g. after [advanceTime]; work that needs a network waits while the device is
+ * offline. Alarms the app sets with `AlarmManager` (push uses them to refresh IDLE connections and to retry) go off the
+ * same way, once [advanceTime] has moved the clock past them.
  *
  * Two clocks move together in [advanceTime]: the scenario's [ScenarioClock], which the app gets through Koin, and
  * Robolectric's system clock, behind `SystemClock` and `System.currentTimeMillis()` in app code, which alarms use.
@@ -214,8 +216,10 @@ class ScenarioDevice internal constructor(
     @OptIn(ExperimentalTime::class)
     private fun runDueWork(): Boolean {
         val now = clock.now().toEpochMilliseconds()
+        // Like Android, work that needs a network waits while the device is offline and runs once it's back.
         val due = workManager.getWorkInfos(ALL_WORK).get()
             .filter { it.state == WorkInfo.State.ENQUEUED && it.nextScheduleTimeMillis <= now }
+            .filter { isOnline || it.constraints.requiredNetworkType == NetworkType.NOT_REQUIRED }
         if (due.isEmpty()) return false
 
         // The work runs synchronously inside these calls (SynchronousExecutor), so run them off the main thread while
