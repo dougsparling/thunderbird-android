@@ -25,6 +25,18 @@ interface ScenarioDriver : AutoCloseable {
      */
     fun periodicSyncDue()
 
+    /**
+     * The user turns on push for [folder] in its folder settings while the app is open. The app then keeps a
+     * connection open to be told about new mail; [ScenarioScope.awaitAppListening] waits until it is.
+     */
+    fun enablePush(account: ClientAccount, folder: FolderPath)
+
+    /**
+     * Waits until the app has finished all work it has started so far. Actions already do this before returning; use
+     * it (through [ScenarioScope.eventually]) when the server started something, e.g. by pushing new mail.
+     */
+    fun awaitIdle()
+
     /** Marks the single message with [subject] in [folder] as read, like a user does from the message list. */
     fun markRead(account: ClientAccount, folder: FolderPath, subject: String)
 

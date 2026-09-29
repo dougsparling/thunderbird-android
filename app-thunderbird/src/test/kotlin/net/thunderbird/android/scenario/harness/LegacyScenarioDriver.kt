@@ -1,6 +1,8 @@
 package net.thunderbird.android.scenario.harness
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import androidx.work.WorkerFactory
@@ -17,6 +19,7 @@ import app.k9mail.legacy.ui.folder.DisplayFolderRepository
 import com.fsck.k9.Preferences
 import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.controller.MessagingControllerWrapper
+import com.fsck.k9.controller.push.PushController
 import com.fsck.k9.job.MailSyncWorkerManager
 import com.fsck.k9.mail.AuthType
 import com.fsck.k9.mail.ConnectionSecurity
@@ -30,13 +33,18 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import net.thunderbird.components.core.outcome.fold
 import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.core.android.account.SortType
 import net.thunderbird.core.common.mail.Flag
 import net.thunderbird.feature.mail.folder.api.FolderType
+import net.thunderbird.feature.mail.folder.api.data.repository.FolderDetailsRepository
 import net.thunderbird.feature.search.legacy.LocalMessageSearch
 import net.thunderbird.mail.testserver.fixture.FolderPath
 import org.koin.core.Koin
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowAlarmManager
+import org.robolectric.shadows.ShadowNetworkCapabilities
 
 /**
  * [ScenarioDriver] for the current app, built on the legacy `MessagingController` sync core.
@@ -71,10 +79,21 @@ internal class LegacyScenarioDriver(
     private val pump = MainLooperPump(timeout)
     private val controllerQueue = MessagingControllerQueue(messagingController)
 
+    private val folderDetailsRepository: FolderDetailsRepository = koin.get()
+    private val pushController: PushController = koin.get()
+
     private val context: Context = koin.get()
     private val clock: ScenarioClock = koin.get()
     private val workManager: WorkManager = installTestWorkManager(koin)
     private val workTestDriver: TestDriver = checkNotNull(WorkManagerTestInitHelper.getTestDriver(context))
+
+    init {
+        // Platform state a device would provide. Robolectric's defaults differ:
+        // - Push needs exact alarms to refresh its connection. On a device the user grants this permission.
+        ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        // - The device is online. Robolectric's active network lacks the internet capability the app checks for.
+        setOnline()
+    }
 
     override fun addAccount(spec: AccountSpec): ClientAccount {
         val account = Account(
@@ -169,6 +188,29 @@ internal class LegacyScenarioDriver(
         awaitIdle()
     }
 
+    override fun enablePush(account: ClientAccount, folder: FolderPath) {
+        val accountDto = accountDto(account)
+        val folderId = folderId(accountDto, folder)
+
+        // Same as the "Push" switch in the folder's settings (FolderSettingsDataStore).
+        pump.runInBackground("enabling push for $folder") {
+            runBlocking {
+                val details = folderDetailsRepository.findById(accountDto.id, folderId).fold(
+                    onSuccess = { it ?: error("Folder $folder not found") },
+                    onFailure = { error("Couldn't read the settings of $folder: $it") },
+                )
+                folderDetailsRepository.update(accountDto.id, details.copy(isPushEnabled = true)).fold(
+                    onSuccess = {},
+                    onFailure = { error("Couldn't enable push for $folder: $it") },
+                )
+            }
+        }
+
+        // Every activity does this when it's created (BaseActivity), i.e. the app is open.
+        pushController.init()
+        awaitIdle()
+    }
+
     override fun markRead(account: ClientAccount, folder: FolderPath, subject: String) {
         val matches = messageListItems(account, folder).filter { it.subject == subject }
         val item = matches.singleOrNull()
@@ -249,6 +291,14 @@ internal class LegacyScenarioDriver(
         return preferences.getAccount(account.id) ?: error("Account ${account.email} not found in the app")
     }
 
+    private fun setOnline() {
+        val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
+        val capabilities = ShadowNetworkCapabilities.newInstance().also { networkCapabilities ->
+            shadowOf(networkCapabilities).addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        }
+        shadowOf(connectivityManager).setNetworkCapabilities(connectivityManager.activeNetwork, capabilities)
+    }
+
     /**
      * Replaces WorkManager with its test implementation, which runs work only when the test driver says its delay and
      * constraints are met. Must happen before the app first asks Koin for its WorkManager, which caches the instance.
@@ -267,7 +317,7 @@ internal class LegacyScenarioDriver(
         return testWorkManager
     }
 
-    private fun awaitIdle() {
+    override fun awaitIdle() {
         controllerQueue.awaitIdle(pump)
     }
 

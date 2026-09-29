@@ -1,5 +1,9 @@
 package net.thunderbird.android.scenario.harness
 
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 import net.thunderbird.mail.testserver.provision.ProvisionedUser
 import net.thunderbird.mail.testserver.provision.TestServerConfig
 import net.thunderbird.mail.testserver.proxy.FaultProxy
@@ -27,6 +31,22 @@ interface ScenarioScope {
 
     /** Replaces the proxy's active network rules, e.g. `network { imap.onCommand("UID STORE")... }`. */
     fun network(block: NetworkRulesBuilder.() -> Unit)
+
+    /**
+     * Waits until the app is listening for new mail: one of its connections has sent IDLE and the server accepted it.
+     * Read from the proxy transcript, so it doesn't depend on how the app implements push.
+     */
+    fun awaitAppListening(timeout: Duration = DEFAULT_WAIT)
+
+    /**
+     * Retries [block] until it passes or [timeout] runs out, letting the app finish its work in between. For effects
+     * the server starts, such as pushed mail, which the app handles in its own time.
+     */
+    fun eventually(timeout: Duration = DEFAULT_WAIT, block: () -> Unit)
+
+    companion object {
+        val DEFAULT_WAIT: Duration = 20.seconds
+    }
 }
 
 class ScenarioClient internal constructor(
@@ -111,6 +131,35 @@ class ScenarioRule : TestRule {
             proxy.apply(networkRules(block))
         }
 
+        override fun awaitAppListening(timeout: Duration) {
+            waitUntil(timeout, what = "the app to send IDLE and the server to accept it") {
+                isIdling(proxy.transcript())
+            }
+        }
+
+        override fun eventually(timeout: Duration, block: () -> Unit) {
+            val deadline = TimeSource.Monotonic.markNow() + timeout
+            while (true) {
+                try {
+                    block()
+                    return
+                } catch (e: AssertionError) {
+                    if (deadline.hasPassedNow()) throw e
+                    driver.awaitIdle()
+                    Thread.sleep(POLL_INTERVAL.inWholeMilliseconds)
+                }
+            }
+        }
+
+        private fun waitUntil(timeout: Duration, what: String, condition: () -> Boolean) {
+            val deadline = TimeSource.Monotonic.markNow() + timeout
+            while (!condition()) {
+                check(!deadline.hasPassedNow()) { "Timed out after $timeout waiting for $what" }
+                driver.awaitIdle()
+                Thread.sleep(POLL_INTERVAL.inWholeMilliseconds)
+            }
+        }
+
         fun printDiagnostics(description: Description) {
             if (!proxyDelegate.isInitialized()) return
 
@@ -151,6 +200,30 @@ class ScenarioRule : TestRule {
             }
         }
     }
+}
+
+private val POLL_INTERVAL = 100.milliseconds
+private val TRANSCRIPT_LINE = Regex("""\[(c\d+)] ([CS]): (.*)""")
+private val IDLE_COMMAND = Regex("""\S+ IDLE""", RegexOption.IGNORE_CASE)
+
+/** True if, on some connection, the last client command was IDLE and the server has answered it with `+`. */
+internal fun isIdling(transcript: String): Boolean {
+    val idleSent = mutableSetOf<String>()
+    val idling = mutableSetOf<String>()
+    for (match in transcript.lineSequence().mapNotNull { TRANSCRIPT_LINE.find(it) }) {
+        val (connection, direction, text) = match.destructured
+        when {
+            direction == "C" && IDLE_COMMAND.matches(text) -> idleSent += connection
+
+            direction == "C" -> {
+                idleSent -= connection
+                idling -= connection
+            }
+
+            text.startsWith("+") && connection in idleSent -> idling += connection
+        }
+    }
+    return idling.isNotEmpty()
 }
 
 /**
