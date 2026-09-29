@@ -94,27 +94,34 @@ A scenario (`scenario { … }`) sees:
 - **Detekt:** CI runs plain `./gradlew detekt` (covers test sources). The stricter `detektMain`/`detektTest` are not
   enforced, and existing modules don't pass them either.
 
-## In flight at handoff
+## Harness extensions (done, committed)
 
-A Claude subagent was extending the harness (uncommitted changes in the working tree; files named `Tmp*ScenarioTest.kt`
-are its temporary verification tests and must be deleted before committing). Requested scope:
-1. `MessagingControllerQueue.awaitIdle` fails fast (with the cause) when the controller thread dies. In debug builds
-   `MessagingController` throws `AssertionError` for unexpected pending-command exceptions (~`:825-831`), which kills
-   the thread.
-2. ~~`@KnownBug`~~: dropped by the user; don't build it.
-3. Driver actions: `delete`, `archive`, `move`, star/unstar, mark unread, `markAllRead`, `emptyTrash`, `loadMore`,
-   `refreshFolders`, `updatePassword`; `AccountSpec.notifyNewMail`; Trash/Archive special folders working out of the
-   box.
-4. Server helpers (another client): `deleteMessage(expunge)`, `moveMessage`, `setFlags`, `deleteFolder`,
-   `renameFolder`, `recreateFolder` (new UIDVALIDITY), via a new `DefaultMailboxEditor` in the provision module.
-5. Proxy: `respond("NO …")` action (answer with the client's tag without forwarding), command-argument predicate
-   `imap.onCommand("UID FETCH") { args -> … }`.
-6. Device: going offline/online (connectivity callbacks), firing due AlarmManager alarms in `advanceTime`.
+- **Queue:** `awaitIdle` fails fast with `ControllerThreadDiedException` (with the cause) when the controller thread
+  dies (debug builds throw `AssertionError` for unexpected pending-command exceptions, ~`MessagingController.java:825`).
+- **Driver:** `markUnread`, `setStarred(…, starred)`, `delete`, `archive`, `move(…, to)`, `markAllRead`, `emptyTrash`,
+  `loadMore`, `refreshFolders`, `updatePassword`, plus `client.account(…, notifyNewMail = false)`. Each mirrors the UI
+  (comments name the UI code) and refuses where the UI would (no archive/trash folder, outbox, no "load more").
+  `updatePassword` skips the settings screen's connection check.
+- **Server (another client):** `deleteMessage(user, folder, subject, expunge = true)`, `moveMessage`, `setFlags(…, add,
+  remove)`, `deleteFolder`, `renameFolder`, `recreateFolder(user, path) { messages }`; `ServerFolderState.uidValidity`.
+- **Proxy:** `beforeServerSees { respond("NO [UNAVAILABLE] …") }` answers with the client's tag without forwarding;
+  `imap.onCommand("UID FETCH", label = "…") { args -> … }` matches command arguments.
+- **Device/scope:** `device.setOnline(online)` (app's network callbacks fire); `goOffline()`/`goOnline()` on the scope
+  combine that with the proxy (refuse + reset connections). `advanceTime` also advances Robolectric's clock and
+  `settle()` fires due AlarmManager alarms (push uses `ELAPSED_REALTIME_WAKEUP`; 30 minutes triggers an IDLE refresh).
+- **Setup facts:** a new account auto-selects special folders from SPECIAL-USE (James' Trash works; seed
+  `folder("Archive", specialUse = SpecialUse.ARCHIVE)` for archive) and enables INBOX notifications.
 
-**Next session, first step:** check `git status`/`git diff`, delete the `Tmp*` tests, run the verification commands
-above, review the new API (look at `ScenarioDriver`, `ScenarioServer`, `ScenarioDevice`, `ScenarioRule`,
-`NetworkRules`), and commit in pieces (queue fix, proxy additions, server helpers, driver actions, device additions).
-If something is half-done, finish or remove it; don't commit broken pieces.
+**Observed behaviour worth knowing when writing scenarios:**
+- Pull to refresh never produces new-mail notifications (the UI passes `notify = false`); use push or periodic sync.
+- Delete moves to Trash and marks `\Seen`; archive also marks `\Seen`.
+- Messages flagged `\Deleted` but not expunged on the server are hidden by the app.
+- James recreate: new UIDVALIDITY, UIDs restart at 1; the app handled it correctly.
+- James has a server-side "Outbox", so the folder list shows two Outboxes.
+- An account set up with a wrong password gets only the local Outbox and no auth notification; after
+  `updatePassword`, call `refreshFolders` before INBOX exists.
+- **Backlog candidate already seen:** `UID STORE` answered once with `NO [UNAVAILABLE]` loses the mark-as-read (unread
+  on server and in app after the next sync): transient NO is treated as permanent (matches plan item A4/A6).
 
 ## Next: write the scenarios (delegated to opencode)
 
