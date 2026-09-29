@@ -1,8 +1,7 @@
 package net.thunderbird.android.scenario.harness
 
+import android.app.Application
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import androidx.work.WorkerFactory
@@ -42,9 +41,6 @@ import net.thunderbird.feature.mail.folder.api.data.repository.FolderDetailsRepo
 import net.thunderbird.feature.search.legacy.LocalMessageSearch
 import net.thunderbird.mail.testserver.fixture.FolderPath
 import org.koin.core.Koin
-import org.robolectric.Shadows.shadowOf
-import org.robolectric.shadows.ShadowAlarmManager
-import org.robolectric.shadows.ShadowNetworkCapabilities
 
 /**
  * [ScenarioDriver] for the current app, built on the legacy `MessagingController` sync core.
@@ -87,15 +83,20 @@ internal class LegacyScenarioDriver(
     private val workManager: WorkManager = installTestWorkManager(koin)
     private val workTestDriver: TestDriver = checkNotNull(WorkManagerTestInitHelper.getTestDriver(context))
 
-    init {
-        // Platform state a device would provide. Robolectric's defaults differ:
-        // - Push needs exact alarms to refresh its connection. On a device the user grants this permission.
-        ShadowAlarmManager.setCanScheduleExactAlarms(true)
-        // - The device is online. Robolectric's active network lacks the internet capability the app checks for.
-        setOnline()
+    private val platform = RobolectricPlatform(context as Application)
+
+    override fun setPermission(permission: AppPermission, granted: Boolean) {
+        platform.setPermission(permission, granted)
+        awaitIdle()
+    }
+
+    override fun notifications(): List<ClientNotification> {
+        awaitIdle()
+        return platform.notifications()
     }
 
     override fun addAccount(spec: AccountSpec): ClientAccount {
+        platform.markAppInUse()
         val account = Account(
             uuid = UUID.randomUUID().toString(),
             emailAddress = spec.email,
@@ -246,6 +247,7 @@ internal class LegacyScenarioDriver(
         try {
             controllerQueue.stopController()
         } finally {
+            platform.close()
             pump.close()
         }
     }
@@ -291,14 +293,6 @@ internal class LegacyScenarioDriver(
         return preferences.getAccount(account.id) ?: error("Account ${account.email} not found in the app")
     }
 
-    private fun setOnline() {
-        val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
-        val capabilities = ShadowNetworkCapabilities.newInstance().also { networkCapabilities ->
-            shadowOf(networkCapabilities).addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        }
-        shadowOf(connectivityManager).setNetworkCapabilities(connectivityManager.activeNetwork, capabilities)
-    }
-
     /**
      * Replaces WorkManager with its test implementation, which runs work only when the test driver says its delay and
      * constraints are met. Must happen before the app first asks Koin for its WorkManager, which caches the instance.
@@ -319,6 +313,9 @@ internal class LegacyScenarioDriver(
 
     override fun awaitIdle() {
         controllerQueue.awaitIdle(pump)
+        // Scenarios run on Robolectric's main thread, where the system would start services too.
+        platform.runRequestedServices()
+        pump.idleMainLooper()
     }
 
     /** Maps the name shown in the app back to a logical path, using the server's hierarchy delimiter. */

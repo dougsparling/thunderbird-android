@@ -32,6 +32,15 @@ interface ScenarioDriver : AutoCloseable {
     fun enablePush(account: ClientAccount, folder: FolderPath)
 
     /**
+     * The user grants or denies [permission]. Granting works at any time; denying only before the scenario's first
+     * action, because on a device revoking a permission restarts the app.
+     */
+    fun setPermission(permission: AppPermission, granted: Boolean)
+
+    /** The notifications the user currently sees. */
+    fun notifications(): List<ClientNotification>
+
+    /**
      * Waits until the app has finished all work it has started so far. Actions already do this before returning; use
      * it (through [ScenarioScope.eventually]) when the server started something, e.g. by pushing new mail.
      */
@@ -69,6 +78,27 @@ data class ClientFolder(
     val path: FolderPath,
     val unreadCount: Int,
     val isLocalOnly: Boolean,
+)
+
+/**
+ * Permissions the user controls. Scenarios start as on a device after onboarding: [NOTIFICATIONS] and [EXACT_ALARMS]
+ * granted, [CONTACTS] and [CAMERA] not.
+ */
+enum class AppPermission {
+    NOTIFICATIONS,
+    CONTACTS,
+    CAMERA,
+
+    /** Special access ("Alarms & reminders"), needed to keep push connections alive. */
+    EXACT_ALARMS,
+}
+
+/** A notification as the user sees it. [tapAction] is the intent action a tap starts, if any. */
+data class ClientNotification(
+    val title: String?,
+    val text: String?,
+    val tapAction: String?,
+    val isOngoing: Boolean,
 )
 
 data class ClientMessage(
