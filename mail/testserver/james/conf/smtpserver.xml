@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!-- Not needed: test mail is seeded over IMAP. -->
+<smtpservers>
+    <smtpserver enabled="false">
+        <jmxName>smtpserver</jmxName>
+        <bind>127.0.0.1:0</bind>
+    </smtpserver>
+</smtpservers>

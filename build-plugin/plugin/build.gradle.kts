@@ -93,6 +93,10 @@ gradlePlugin {
             id = "net.thunderbird.gradle.plugin.featureflag.library"
             implementationClass = "net.thunderbird.gradle.plugin.featureflag.FeatureFlagLibraryPlugin"
         }
+        register("TestServerScenario") {
+            id = "net.thunderbird.gradle.plugin.testserver.scenario"
+            implementationClass = "net.thunderbird.gradle.plugin.testserver.ScenarioTestPlugin"
+        }
         register("PiiSafe") {
             id = "net.thunderbird.piisafe"
             implementationClass = "net.thunderbird.gradle.plugin.piisafe.PiiSafeGradleSubplugin"

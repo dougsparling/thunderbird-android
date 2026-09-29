@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<!--
+  Plaintext IMAP for scenario tests, bound to loopback only. The port is filled in by the Gradle test server service.
+  Tests reach it through a per-test fault proxy that records a transcript, so TLS and COMPRESS stay off to keep the
+  transcript readable.
+-->
+<imapservers>
+    <imapserver enabled="true">
+        <jmxName>imapserver</jmxName>
+        <bind>127.0.0.1:@IMAP_PORT@</bind>
+        <connectionBacklog>200</connectionBacklog>
+        <tls socketTLS="false" startTLS="false"/>
+        <connectionLimit>0</connectionLimit>
+        <connectionLimitPerIP>0</connectionLimitPerIP>
+        <idleTimeInterval>120</idleTimeInterval>
+        <idleTimeIntervalUnit>SECONDS</idleTimeIntervalUnit>
+        <enableIdle>true</enableIdle>
+        <!-- James 3.9's bundled imapserver.xml uses plainAuthDisallowed; <auth> is kept for newer versions. -->
+        <plainAuthDisallowed>false</plainAuthDisallowed>
+        <auth>
+            <plainAuthEnabled>true</plainAuthEnabled>
+            <requireSSL>false</requireSSL>
+        </auth>
+        <!-- COMPRESS=DEFLATE, as named in James 3.9's bundled imapserver.xml. -->
+        <compress>false</compress>
+        <gracefulShutdown>false</gracefulShutdown>
+    </imapserver>
+</imapservers>

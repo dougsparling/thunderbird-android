@@ -71,6 +71,8 @@ glide = "4.16.0"
 gradle = "9.6.1"
 gradleSha256 = "61ba77b3ff7167e60962763eb4bae79db7120c189b9544358d0ade3c1e712a83"
 icu4j = "78.3"
+# Test mail server for scenario tests (app-thunderbird). Only resolved when scenario tests run.
+jamesServer = "3.9.0"
 javaDiffUtils = "4.17"
 jcipAnnotations = "1.0"
 jetbrainsAnnotations = "26.1.0"
@@ -157,6 +159,7 @@ tb-piisafe = { id = "net.thunderbird.piisafe" }
 tb-quality-code-coverage = { id = "net.thunderbird.gradle.plugin.quality.coverage" }
 tb-quality-detekt = { id = "net.thunderbird.gradle.plugin.quality.detekt" }
 tb-quality-spotless = { id = "net.thunderbird.gradle.plugin.quality.spotless" }
+tb-testserver-scenario = { id = "net.thunderbird.gradle.plugin.testserver.scenario" }
 
 [libraries]
 android-billing = { module = "com.android.billingclient:billing", version.ref = "androidBilling" }
@@ -233,6 +236,7 @@ forkhandles-fabrikate4k = { module = "dev.forkhandles:fabrikate4k" }
 glide = { module = "com.github.bumptech.glide:glide", version.ref = "glide" }
 glide-compiler = { module = "com.github.bumptech.glide:compiler", version.ref = "glide" }
 icu4j-charset = { module = "com.ibm.icu:icu4j-charset", version.ref = "icu4j" }
+james-server-memory-app = { module = "org.apache.james:james-server-memory-app", version.ref = "jamesServer" }
 jetbrains-annotations = { module = "org.jetbrains:annotations", version.ref = "jetbrainsAnnotations" }
 jetbrains-compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "jetbrainsCompose" }
 jetbrains-compose-components-ui-preview = { module = "org.jetbrains.compose.ui:ui-tooling-preview", version.ref = "jetbrainsCompose" }

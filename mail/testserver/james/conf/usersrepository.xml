@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!-- Users are created per test via WebAdmin as user@domain. -->
+<usersrepository name="LocalUsers">
+    <!-- TODO(verify): hashing algorithm name accepted by James 3.9. -->
+    <algorithm>PBKDF2-SHA512</algorithm>
+    <enableVirtualHosting>true</enableVirtualHosting>
+    <enableForwarding>true</enableForwarding>
+</usersrepository>

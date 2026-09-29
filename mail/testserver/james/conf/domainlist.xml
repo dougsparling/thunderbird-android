@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!-- The test domain is also created via WebAdmin at startup, so it exists even if <domainnames> is ignored. -->
+<domainlist>
+    <autodetect>false</autodetect>
+    <autodetectIP>false</autodetectIP>
+    <defaultDomain>@DOMAIN@</defaultDomain>
+    <!-- TODO(verify): <domainnames> is still honoured by the Guice apps in 3.9. -->
+    <domainnames>
+        <domainname>@DOMAIN@</domainname>
+    </domainnames>
+</domainlist>

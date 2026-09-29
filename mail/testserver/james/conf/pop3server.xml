@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<pop3servers>
+    <pop3server enabled="false">
+        <jmxName>pop3server</jmxName>
+        <bind>127.0.0.1:0</bind>
+    </pop3server>
+</pop3servers>

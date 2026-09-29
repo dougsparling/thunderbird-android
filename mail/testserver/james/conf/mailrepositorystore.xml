@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<mailrepositorystore>
+    <defaultProtocol>memory</defaultProtocol>
+    <mailrepositories>
+        <mailrepository class="org.apache.james.mailrepository.memory.MemoryMailRepository">
+            <protocols>
+                <protocol>memory</protocol>
+            </protocols>
+            <config/>
+        </mailrepository>
+    </mailrepositories>
+</mailrepositorystore>
