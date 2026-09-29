@@ -28,8 +28,7 @@ class NestedFolderSyncScenarioTest : ScenarioTest() {
         }
         val account = client.account(user)
 
-        driver.refreshFolders(account)
-        driver.sync(account, ARCHIVE_2024)
+        driver.pullToRefresh(account, ARCHIVE_2024)
 
         assertThat(driver.folderList(account).map { it.path }).contains(ARCHIVE_2024)
         assertThat(driver.messageList(account, ARCHIVE_2024)).containsExactly(

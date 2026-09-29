@@ -29,14 +29,14 @@ class MarkReadLostResponseScenarioTest : ScenarioTest() {
             }
         }
         val account = client.account(user)
-        driver.sync(account, FolderPath.INBOX)
+        driver.pullToRefresh(account, FolderPath.INBOX)
 
         // The legacy code sends "UID STORE <uid> +FLAGS.SILENT (\Seen)" for this.
         network {
             imap.onCommand("UID STORE").afterServerResponds { disconnect() }.once()
         }
         driver.markRead(account, FolderPath.INBOX, SUBJECT)
-        driver.sync(account, FolderPath.INBOX)
+        driver.pullToRefresh(account, FolderPath.INBOX)
 
         // Guards against a vacuous pass if the app stops sending UID STORE and the rule never fires.
         assertThat(proxy.transcript()).contains("!! disconnect (rule: onCommand UID STORE afterServerResponds)")

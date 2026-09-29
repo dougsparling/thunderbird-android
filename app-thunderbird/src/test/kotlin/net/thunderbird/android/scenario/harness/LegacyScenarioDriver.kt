@@ -4,7 +4,7 @@ import app.k9mail.feature.account.common.domain.entity.Account
 import app.k9mail.feature.account.common.domain.entity.AccountOptions
 import app.k9mail.feature.account.setup.AccountSetupExternalContract.AccountCreator
 import app.k9mail.feature.account.setup.AccountSetupExternalContract.AccountCreator.AccountCreatorResult
-import app.k9mail.legacy.mailstore.MessageStoreManager
+import app.k9mail.legacy.message.controller.SimpleMessagingListener
 import app.k9mail.legacy.ui.folder.DisplayFolder
 import app.k9mail.legacy.ui.folder.DisplayFolderRepository
 import com.fsck.k9.Preferences
@@ -33,14 +33,15 @@ import org.koin.core.Koin
 /**
  * [ScenarioDriver] for the current app, built on the legacy `MessagingController` sync core.
  *
- * Actions use the same entry points as the UI where that is feasible:
+ * Actions make the same calls as the UI:
  * - account setup goes through the app's [AccountCreator], the last step of the setup wizard,
- * - marking read goes through [MessagingControllerWrapper.setFlag], like the message list,
+ * - pull to refresh and marking read go through [MessagingControllerWrapper] like `LegacyMessageListFragment`, the
+ *   message list shown while the `enable_message_list_new_state` feature flag is off (the default),
  * - the folder list comes from [DisplayFolderRepository], like the folder drawer,
  * - the message list comes from [MessageListLoader], like the message list screen (unthreaded, by date).
  *
- * Refreshing the folder list and syncing a folder use the controller's blocking variants. After every action the
- * driver waits until the controller has run all follow-up work, see [MessagingControllerQueue].
+ * After every action the driver waits until the controller has run all follow-up work, see
+ * [MessagingControllerQueue].
  */
 internal class LegacyScenarioDriver(
     koin: Koin,
@@ -52,7 +53,9 @@ internal class LegacyScenarioDriver(
     private val messagingControllerWrapper: MessagingControllerWrapper = koin.get()
     private val displayFolderRepository: DisplayFolderRepository = koin.get()
     private val messageListLoader: MessageListLoader = koin.get()
-    private val messageStoreManager: MessageStoreManager = koin.get()
+
+    // The message list passes its own listener for progress updates; scenarios read results from the UI's data sources.
+    private val uiListener = object : SimpleMessagingListener() {}
 
     private val pump = MainLooperPump(timeout)
     private val controllerQueue = MessagingControllerQueue(messagingController)
@@ -111,16 +114,13 @@ internal class LegacyScenarioDriver(
         return ClientAccount(id = result.accountUuid, email = spec.email)
     }
 
-    override fun refreshFolders(account: ClientAccount) {
+    override fun pullToRefresh(account: ClientAccount, folder: FolderPath) {
         val accountDto = accountDto(account)
-        pump.runInBackground("folder list refresh") { messagingController.refreshFolderListBlocking(accountDto) }
-        awaitIdle()
-    }
+        val folderId = folderId(accountDto, folder)
 
-    override fun sync(account: ClientAccount, folder: FolderPath) {
-        val accountDto = accountDto(account)
-        val serverId = folderServerId(accountDto, folder)
-        pump.runInBackground("sync of $folder") { messagingController.synchronizeMailboxBlocking(accountDto, serverId) }
+        // Same calls as LegacyMessageListFragment.checkMail() when it shows a single folder of a single account.
+        messagingControllerWrapper.synchronizeMailbox(accountDto.id, folderId, false, uiListener)
+        messagingControllerWrapper.sendPendingMessages(accountDto.id, uiListener)
         awaitIdle()
     }
 
@@ -198,12 +198,6 @@ internal class LegacyScenarioDriver(
         val match = folders.firstOrNull { it.toFolderPath() == path }
             ?: error("Folder $path not in the app's folder list: ${folders.map { it.toFolderPath() }}")
         return match.folder.id
-    }
-
-    private fun folderServerId(accountDto: LegacyAccountDto, path: FolderPath): String {
-        val folderId = folderId(accountDto, path)
-        return messageStoreManager.getMessageStore(accountDto).getFolderServerId(folderId)
-            ?: error("Folder $path has no server ID")
     }
 
     private fun accountDto(account: ClientAccount): LegacyAccountDto {

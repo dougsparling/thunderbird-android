@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config
  *     fun `what the user experiences`() = scenario {
  *         val user = server.user { inbox { message { subject("Hi") } } }
  *         val account = client.account(user)
- *         driver.sync(account, FolderPath.INBOX)
+ *         driver.pullToRefresh(account, FolderPath.INBOX)
  *         assertThat(driver.messageList(account, FolderPath.INBOX)).hasSize(1)
  *     }
  * }

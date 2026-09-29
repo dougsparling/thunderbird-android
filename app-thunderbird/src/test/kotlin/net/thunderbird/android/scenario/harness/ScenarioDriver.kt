@@ -8,16 +8,16 @@ import net.thunderbird.mail.testserver.fixture.FolderPath
  * Scenarios talk to the app only through this interface, so they keep working when the sync core behind it is
  * replaced: a new implementation drives the new code, the scenarios stay the same. Every action returns once the app
  * has finished the work it started, so scenarios never need to wait or poll.
+ *
+ * Actions are named after what starts them (the user, or later the system: periodic sync, push, connectivity), never
+ * after how the app does the work, so any sync core can implement them.
  */
 interface ScenarioDriver : AutoCloseable {
     /** Sets up an IMAP account the way account setup does, including whatever the app does right after setup. */
     fun addAccount(spec: AccountSpec): ClientAccount
 
-    /** Fetches the folder list from the server. */
-    fun refreshFolders(account: ClientAccount)
-
-    /** Synchronizes one folder with the server, including sending pending local changes first. */
-    fun sync(account: ClientAccount, folder: FolderPath)
+    /** The user pulls to refresh while looking at [folder] in the message list. */
+    fun pullToRefresh(account: ClientAccount, folder: FolderPath)
 
     /** Marks the single message with [subject] in [folder] as read, like a user does from the message list. */
     fun markRead(account: ClientAccount, folder: FolderPath, subject: String)
