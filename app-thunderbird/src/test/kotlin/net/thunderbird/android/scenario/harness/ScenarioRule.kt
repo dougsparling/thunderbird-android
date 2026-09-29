@@ -36,6 +36,16 @@ interface ScenarioScope {
     fun network(block: NetworkRulesBuilder.() -> Unit)
 
     /**
+     * The device loses its network: the proxy refuses new connections and resets the open ones, and the app is told
+     * the network is gone ([ScenarioDevice.setOnline]). Other network rules stay active, but their use counts
+     * (`once()`, `times(n)`) start over.
+     */
+    fun goOffline()
+
+    /** The device is back online: the proxy accepts connections again and the app is told the network is available. */
+    fun goOnline()
+
+    /**
      * Waits until the app is listening for new mail: one of its connections has sent IDLE and the server accepted it.
      * Read from the proxy transcript, so it doesn't depend on how the app implements push.
      */
@@ -61,11 +71,13 @@ class ScenarioClient internal constructor(
      * Adds an account for [user] to the app, connecting through the fault proxy. Pass a different [password] to set
      * the account up with wrong credentials, and [checkIntervalMinutes] to have the app schedule periodic mail sync
      * (it runs as [ScenarioDevice.advanceTime] lets time pass); without it the account never syncs in the background.
+     * With [notifyNewMail] the user gets notifications for new inbox mail found by background sync or push.
      */
     fun account(
         user: ProvisionedUser,
         password: String = user.password,
         checkIntervalMinutes: Int? = null,
+        notifyNewMail: Boolean = false,
     ): ClientAccount {
         onFirstAccount()
         return driverProvider().addAccount(
@@ -76,6 +88,7 @@ class ScenarioClient internal constructor(
                 username = user.username,
                 password = password,
                 checkIntervalMinutes = checkIntervalMinutes,
+                notifyNewMail = notifyNewMail,
             ),
         )
     }
@@ -145,6 +158,17 @@ class ScenarioRule : TestRule {
 
         override fun network(block: NetworkRulesBuilder.() -> Unit) {
             proxy.apply(networkRules(block))
+        }
+
+        override fun goOffline() {
+            proxy.apply(proxy.activeRules.copy(refuseConnections = true))
+            proxy.disconnectAll(reset = true)
+            device.setOnline(false)
+        }
+
+        override fun goOnline() {
+            proxy.apply(proxy.activeRules.copy(refuseConnections = false))
+            device.setOnline(true)
         }
 
         override fun awaitAppListening(timeout: Duration) {

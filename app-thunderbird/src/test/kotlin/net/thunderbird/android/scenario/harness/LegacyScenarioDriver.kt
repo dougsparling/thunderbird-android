@@ -1,7 +1,10 @@
 package net.thunderbird.android.scenario.harness
 
+import app.k9mail.feature.account.common.AccountCommonExternalContract.AccountStateLoader
 import app.k9mail.feature.account.common.domain.entity.Account
 import app.k9mail.feature.account.common.domain.entity.AccountOptions
+import app.k9mail.feature.account.edit.AccountEditExternalContract.AccountServerSettingsUpdater
+import app.k9mail.feature.account.edit.AccountEditExternalContract.AccountUpdaterResult
 import app.k9mail.feature.account.setup.AccountSetupExternalContract.AccountCreator
 import app.k9mail.feature.account.setup.AccountSetupExternalContract.AccountCreator.AccountCreatorResult
 import app.k9mail.legacy.message.controller.SimpleMessagingListener
@@ -16,6 +19,7 @@ import com.fsck.k9.mail.ConnectionSecurity
 import com.fsck.k9.mail.ServerSettings
 import com.fsck.k9.mail.store.imap.ImapStoreSettings
 import com.fsck.k9.ui.messagelist.MessageListConfig
+import com.fsck.k9.ui.messagelist.MessageListInfo
 import com.fsck.k9.ui.messagelist.MessageListItem
 import com.fsck.k9.ui.messagelist.MessageListLoader
 import java.util.UUID
@@ -38,10 +42,21 @@ import org.koin.core.Koin
  *
  * Actions make the same calls as the UI:
  * - account setup goes through the app's [AccountCreator], the last step of the setup wizard,
- * - pull to refresh and marking read go through [MessagingControllerWrapper] like `LegacyMessageListFragment`, the
- *   message list shown while the `enable_message_list_new_state` feature flag is off (the default),
+ * - pull to refresh and the message actions (flags, delete, archive, move, mark all read, empty trash, load more) go
+ *   through [MessagingControllerWrapper] like `LegacyMessageListFragment`, the message list shown while the
+ *   `enable_message_list_new_state` feature flag is off (the default), in its unthreaded mode,
+ * - refreshing folders calls [MessagingController.refreshFolderList] like `ManageFoldersFragment`,
+ * - changing the password goes through [AccountServerSettingsUpdater] like the "save" step of the incoming server
+ *   settings screen,
  * - the folder list comes from [DisplayFolderRepository], like the folder drawer,
  * - the message list comes from [MessageListLoader], like the message list screen (unthreaded, by date).
+ *
+ * Special folders are set up as a new account gets them: account setup leaves every special folder on automatic
+ * selection, and the folder list refresh at the end of setup picks the folders the server marks with SPECIAL-USE
+ * attributes (`\Trash`, `\Archive`, ...), see `DefaultSpecialFolderUpdater`. Apache James creates Trash, Sent, Drafts
+ * and Spam for new users; an archive folder exists only if the scenario seeds one, e.g.
+ * `folder("Archive", specialUse = SpecialUse.ARCHIVE)`. The same refresh enables notifications for the inbox, so
+ * [AccountSpec.notifyNewMail] is all it takes for new inbox mail to notify the user.
  *
  * After every action the driver waits until the controller has run all follow-up work, see
  * [MessagingControllerQueue].
@@ -65,6 +80,8 @@ internal class LegacyScenarioDriver(
 
     private val folderDetailsRepository: FolderDetailsRepository = koin.get()
     private val pushController: PushController = koin.get()
+    private val accountStateLoader: AccountStateLoader = koin.get()
+    private val serverSettingsUpdater: AccountServerSettingsUpdater = koin.get()
 
     override fun addAccount(spec: AccountSpec): ClientAccount {
         val account = Account(
@@ -108,7 +125,7 @@ internal class LegacyScenarioDriver(
                 // which runs when the scenario's device settles (see ScenarioDevice).
                 checkFrequencyInMinutes = spec.checkIntervalMinutes ?: LegacyAccountDto.INTERVAL_MINUTES_NEVER,
                 messageDisplayCount = MESSAGE_DISPLAY_COUNT,
-                showNotification = false,
+                showNotification = spec.notifyNewMail,
             ),
         )
 
@@ -155,11 +172,126 @@ internal class LegacyScenarioDriver(
     }
 
     override fun markRead(account: ClientAccount, folder: FolderPath, subject: String) {
-        val matches = messageListItems(account, folder).filter { it.subject == subject }
-        val item = matches.singleOrNull()
-            ?: error("Expected one message with subject '$subject' in $folder, found ${matches.size}")
+        setFlag(account, folder, subject, Flag.SEEN, true)
+    }
 
-        messagingControllerWrapper.setFlag(item.account.id, listOf(item.databaseId), Flag.SEEN, true)
+    override fun markUnread(account: ClientAccount, folder: FolderPath, subject: String) {
+        setFlag(account, folder, subject, Flag.SEEN, false)
+    }
+
+    override fun setStarred(account: ClientAccount, folder: FolderPath, subject: String, starred: Boolean) {
+        setFlag(account, folder, subject, Flag.FLAGGED, starred)
+    }
+
+    /** Same call as LegacyMessageListFragment.setFlag() for a message that isn't shown as a thread. */
+    private fun setFlag(account: ClientAccount, folder: FolderPath, subject: String, flag: Flag, newState: Boolean) {
+        val item = messageListItem(account, folder, subject)
+        messagingControllerWrapper.setFlag(item.account.id, listOf(item.databaseId), flag, newState)
+        awaitIdle()
+    }
+
+    override fun delete(account: ClientAccount, folder: FolderPath, subject: String) {
+        val item = messageListItem(account, folder, subject)
+
+        // Same as LegacyMessageListFragment.onDeleteConfirmed() in the unthreaded list; the swipe action and the menu
+        // both end up there, and confirming deletes is off by default.
+        messagingControllerWrapper.deleteMessages(listOf(item.messageReference))
+        awaitIdle()
+    }
+
+    override fun archive(account: ClientAccount, folder: FolderPath, subject: String) {
+        val item = messageListItem(account, folder, subject)
+        checkNotNull(item.account.archiveFolderId) {
+            "${account.email} has no archive folder; the app would offer to set one up instead of archiving"
+        }
+        checkMovePossible(item)
+
+        // Same as LegacyMessageListFragment.onArchive() in the unthreaded list.
+        messagingControllerWrapper.archiveMessages(listOf(item.messageReference))
+        awaitIdle()
+    }
+
+    override fun move(account: ClientAccount, folder: FolderPath, subject: String, to: FolderPath) {
+        val item = messageListItem(account, folder, subject)
+        val destinationFolderId = folderId(accountDto(account), to)
+        checkMovePossible(item)
+        require(destinationFolderId != item.folderId) { "The message is already in $to" }
+
+        // Same as LegacyMessageListFragment.copyOrMove() for a move in the unthreaded list, after the user picked the
+        // destination in the folder picker.
+        messagingControllerWrapper.moveMessages(
+            item.account.id,
+            item.folderId,
+            listOf(item.messageReference),
+            destinationFolderId,
+        )
+        awaitIdle()
+    }
+
+    /** The checks of LegacyMessageListFragment.checkCopyOrMovePossible(), which shows a toast instead of moving. */
+    private fun checkMovePossible(item: MessageListItem) {
+        check(messagingControllerWrapper.isMoveCapable(item.account.id)) { "The account can't move messages" }
+        check(messagingControllerWrapper.isMoveCapable(item.messageReference)) {
+            "The message '${item.subject}' can't be moved yet (not synced)"
+        }
+    }
+
+    override fun markAllRead(account: ClientAccount, folder: FolderPath) {
+        val accountDto = accountDto(account)
+        val displayFolder = displayFolder(accountDto, folder)
+        check(displayFolder.folder.type != FolderType.OUTBOX) { "The outbox has no \"Mark all as read\"" }
+        val folderId = displayFolder.folder.id
+
+        // Same as LegacyMessageListFragment.markAllAsRead() when showing one folder of one account.
+        messagingControllerWrapper.markAllMessagesRead(accountDto.id, folderId)
+        awaitIdle()
+    }
+
+    override fun emptyTrash(account: ClientAccount) {
+        val accountDto = accountDto(account)
+        checkNotNull(accountDto.trashFolderId) { "${account.email} has no trash folder, so there's no \"Empty trash\"" }
+
+        // Same as confirming the "Empty trash" dialog in LegacyMessageListFragment.
+        messagingControllerWrapper.emptyTrash(accountDto.id)
+        awaitIdle()
+    }
+
+    override fun loadMore(account: ClientAccount, folder: FolderPath) {
+        val accountDto = accountDto(account)
+        val folderId = folderId(accountDto, folder)
+        check(messageListInfo(account, folder).hasMoreMessages) {
+            "The message list of $folder doesn't offer to load more messages"
+        }
+
+        // Same as LegacyMessageListFragment.onFooterClicked() for a folder with more messages on the server.
+        messagingControllerWrapper.loadMoreMessages(accountDto.id, folderId)
+        awaitIdle()
+    }
+
+    override fun refreshFolders(account: ClientAccount) {
+        // Same as the refresh action of ManageFoldersFragment.
+        messagingController.refreshFolderList(accountDto(account))
+        awaitIdle()
+    }
+
+    override fun updatePassword(account: ClientAccount, password: String) {
+        // Same as the incoming server settings screen: it loads the account's settings (LoadAccountState), the user
+        // edits the password, and the save step (SaveServerSettings) hands the settings to the updater. The
+        // connection check the screen makes before saving isn't repeated here.
+        pump.runInBackground("saving the incoming server password") {
+            runBlocking {
+                val state = accountStateLoader.loadAccountState(account.id)
+                    ?: error("Account ${account.email} not found in the app")
+                val incoming = checkNotNull(state.incomingServerSettings) { "Account without incoming settings" }
+                val result = serverSettingsUpdater.updateServerSettings(
+                    accountUuid = account.id,
+                    isIncoming = true,
+                    serverSettings = incoming.copy(password = password),
+                    authorizationState = state.authorizationState,
+                )
+                check(result is AccountUpdaterResult.Success) { "Saving the server settings failed: $result" }
+            }
+        }
         awaitIdle()
     }
 
@@ -193,7 +325,16 @@ internal class LegacyScenarioDriver(
         }
     }
 
-    private fun messageListItems(account: ClientAccount, folder: FolderPath): List<MessageListItem> {
+    private fun messageListItem(account: ClientAccount, folder: FolderPath, subject: String): MessageListItem {
+        val matches = messageListItems(account, folder).filter { it.subject == subject }
+        return matches.singleOrNull()
+            ?: error("Expected one message with subject '$subject' in $folder, found ${matches.size}")
+    }
+
+    private fun messageListItems(account: ClientAccount, folder: FolderPath): List<MessageListItem> =
+        messageListInfo(account, folder).messageListItems
+
+    private fun messageListInfo(account: ClientAccount, folder: FolderPath): MessageListInfo {
         val accountDto = accountDto(account)
         val search = LocalMessageSearch().apply {
             addAccountUuid(accountDto.uuid)
@@ -211,7 +352,7 @@ internal class LegacyScenarioDriver(
 
         // Note: the loader logs and swallows errors, returning an empty list, just like the UI shows one.
         return pump.runInBackground("message list of $folder") {
-            messageListLoader.getMessageList(config).messageListItems
+            messageListLoader.getMessageList(config)
         }
     }
 
@@ -223,11 +364,15 @@ internal class LegacyScenarioDriver(
         }
     }
 
-    private fun folderId(accountDto: LegacyAccountDto, path: FolderPath): Long {
+    private fun folderId(accountDto: LegacyAccountDto, path: FolderPath): Long = displayFolder(
+        accountDto,
+        path,
+    ).folder.id
+
+    private fun displayFolder(accountDto: LegacyAccountDto, path: FolderPath): DisplayFolder {
         val folders = displayFolders(accountDto)
-        val match = folders.firstOrNull { it.toFolderPath() == path }
+        return folders.firstOrNull { it.toFolderPath() == path }
             ?: error("Folder $path not in the app's folder list: ${folders.map { it.toFolderPath() }}")
-        return match.folder.id
     }
 
     private fun accountDto(account: ClientAccount): LegacyAccountDto {

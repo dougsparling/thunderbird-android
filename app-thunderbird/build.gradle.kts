@@ -283,6 +283,7 @@ dependencies {
     // Scenario tests: the real app against a test mail server, see src/test/.../scenario
     testImplementation(projects.mail.testserver.provision)
     testImplementation(projects.feature.account.setup)
+    testImplementation(projects.feature.account.edit)
     testImplementation(projects.mail.protocols.imap)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.work.testing)

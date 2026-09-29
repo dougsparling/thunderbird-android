@@ -32,8 +32,44 @@ interface ScenarioDriver : AutoCloseable {
      */
     fun awaitIdle()
 
-    /** Marks the single message with [subject] in [folder] as read, like a user does from the message list. */
+    // Message actions act on the single message with the given subject in the folder, the way a user does from the
+    // message list (swipe action, context menu or selection). They fail if the subject doesn't identify one message.
+
+    /** Marks the message as read. */
     fun markRead(account: ClientAccount, folder: FolderPath, subject: String)
+
+    /** Marks the message as unread. */
+    fun markUnread(account: ClientAccount, folder: FolderPath, subject: String)
+
+    /** Stars ([starred] true) or unstars the message. */
+    fun setStarred(account: ClientAccount, folder: FolderPath, subject: String, starred: Boolean)
+
+    /** Deletes the message, without a confirmation dialog. Where it goes depends on the account's trash folder. */
+    fun delete(account: ClientAccount, folder: FolderPath, subject: String)
+
+    /** Archives the message; fails if the account has no archive folder (the app would offer to set one up). */
+    fun archive(account: ClientAccount, folder: FolderPath, subject: String)
+
+    /** Moves the message to [to], chosen in the folder picker. */
+    fun move(account: ClientAccount, folder: FolderPath, subject: String, to: FolderPath)
+
+    /** "Mark all as read" in the message list of [folder]. */
+    fun markAllRead(account: ClientAccount, folder: FolderPath)
+
+    /** "Empty trash" in the message list of the account's trash folder; fails if the account has none. */
+    fun emptyTrash(account: ClientAccount)
+
+    /**
+     * Taps "load more messages" at the end of the message list of [folder]; fails if the app doesn't show it, i.e.
+     * it has no older messages to fetch.
+     */
+    fun loadMore(account: ClientAccount, folder: FolderPath)
+
+    /** The refresh action in "Manage folders": the app fetches the server's folder list. */
+    fun refreshFolders(account: ClientAccount)
+
+    /** The user enters a new password for the incoming (IMAP) server in the account's server settings and saves. */
+    fun updatePassword(account: ClientAccount, password: String)
 
     /** The folders the user sees for [account], including local-only folders such as the outbox. */
     fun folderList(account: ClientAccount): List<ClientFolder>
@@ -45,7 +81,7 @@ interface ScenarioDriver : AutoCloseable {
 /**
  * Plaintext IMAP account settings. SMTP is not used by scenarios. [checkIntervalMinutes] null means the account never
  * syncs in the background; otherwise the app schedules periodic sync, which runs as [ScenarioDevice.advanceTime] lets
- * time pass.
+ * time pass. [notifyNewMail] is the "notify me about new mail" choice of account setup.
  */
 data class AccountSpec(
     val email: String,
@@ -54,6 +90,7 @@ data class AccountSpec(
     val username: String,
     val password: String,
     val checkIntervalMinutes: Int? = null,
+    val notifyNewMail: Boolean = false,
 ) {
     override fun toString() = "AccountSpec(email=$email, imap=$imapHost:$imapPort, username=$username)"
 }
