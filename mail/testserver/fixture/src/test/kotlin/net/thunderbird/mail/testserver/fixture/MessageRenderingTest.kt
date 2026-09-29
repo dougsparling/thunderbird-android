@@ -323,6 +323,13 @@ class MessageRenderingTest {
     }
 
     @Test
+    fun `should use default sender when none is declared`() {
+        val testSubject = buildMessage { subject("No sender") }
+
+        assertThat(headerSection(testSubject)).contains("\r\nFrom: Sender <sender@example.org>\r\n")
+    }
+
+    @Test
     fun `should use different boundaries for different messages`() {
         val testSubject = userFixture {
             inbox {

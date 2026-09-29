@@ -108,6 +108,8 @@ data class ServerFolderState(
     val messages: List<ServerMessageState>,
     val uidValidity: Long? = null,
 ) {
+    val subjects: List<String?> get() = messages.map { it.subject }
+
     fun message(subject: String): ServerMessageState =
         messages.singleOrNull { it.subject == subject }
             ?: error("Expected one message with subject '$subject' in $path")

@@ -8,7 +8,8 @@ import kotlin.time.Instant
  *
  * Headers are written in a fixed order: Date, From, To, Cc, Bcc, Reply-To, Subject, Message-ID, custom headers,
  * MIME-Version, then the body's Content-* headers. Exactly one body may be declared; without one the message gets an
- * empty `text/plain` body.
+ * empty `text/plain` body. Without a From the message is from [FixtureDefaults.SENDER]; use `raw()` for a message
+ * that has none.
  */
 @OptIn(ExperimentalTime::class)
 @Suppress("TooManyFunctions") // DSL surface: one function per header or attribute
@@ -102,7 +103,7 @@ class MessageBuilder internal constructor(private val messageNumber: Int) : Body
 
         val headerLines = buildList {
             add(HeaderFormat.field("Date", HeaderFormat.formatDate(date)))
-            addAddressHeader("From", from)
+            addAddressHeader("From", from.ifEmpty { listOf(FixtureDefaults.SENDER) })
             addAddressHeader("To", to)
             addAddressHeader("Cc", cc)
             addAddressHeader("Bcc", bcc)

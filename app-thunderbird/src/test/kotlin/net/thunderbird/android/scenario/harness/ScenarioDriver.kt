@@ -95,6 +95,18 @@ data class AccountSpec(
     override fun toString() = "AccountSpec(email=$email, imap=$imapHost:$imapPort, username=$username)"
 }
 
+/** The subjects of the messages the user sees in [folder], newest first. */
+fun ScenarioDriver.subjects(account: ClientAccount, folder: FolderPath = FolderPath.INBOX): List<String?> =
+    messageList(account, folder).map(ClientMessage::subject)
+
+/** The one message with [subject] the user sees in [folder]. */
+fun ScenarioDriver.message(
+    account: ClientAccount,
+    subject: String,
+    folder: FolderPath = FolderPath.INBOX,
+): ClientMessage =
+    messageList(account, folder).single { it.subject == subject }
+
 /** Handle for an account in the app. */
 data class ClientAccount(val id: String, val email: String)
 

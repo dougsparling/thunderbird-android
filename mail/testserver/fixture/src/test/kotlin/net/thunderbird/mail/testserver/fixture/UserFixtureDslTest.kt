@@ -194,6 +194,19 @@ class UserFixtureDslTest {
     }
 
     @Test
+    fun `should build message from subject shorthand`() {
+        val testSubject = userFixture {
+            inbox {
+                message("Short") { flags(SystemFlag.SEEN) }
+            }
+        }
+
+        val message = testSubject.folders.single().messages.single()
+        assertThat(message.subject).isEqualTo("Short")
+        assertThat(message.flags).isEqualTo(setOf(SystemFlag.SEEN))
+    }
+
+    @Test
     fun `should keep explicit metadata`() {
         val internalDate = Instant.parse("2020-05-05T05:05:05Z")
 

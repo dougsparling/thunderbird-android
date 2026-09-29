@@ -17,6 +17,9 @@ import net.thunderbird.mail.testserver.provision.TestMailServer
 import net.thunderbird.mail.testserver.provision.TestMailServers
 import net.thunderbird.mail.testserver.provision.TestServerConfig
 
+/** The Trash folder the test server creates for every user; a new account picks it up as its trash folder. */
+val TRASH: FolderPath = FolderPath.of("Trash")
+
 /**
  * The shared test mail server as seen by one scenario: it creates the scenario's users, seeds their mailboxes, changes
  * them the way another mail client would (the user on another device, a server-side filter) and reads their state

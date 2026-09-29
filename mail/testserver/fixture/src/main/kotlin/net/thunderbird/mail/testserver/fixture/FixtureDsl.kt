@@ -46,6 +46,11 @@ object FixtureDefaults {
      */
     const val MESSAGE_ID_DOMAIN = "testserver.invalid"
 
+    /**
+     * Sender of messages that don't declare a From.
+     */
+    const val SENDER = "Sender <sender@example.org>"
+
     internal fun dateFor(messageNumber: Int): Instant = BASE_DATE + (messageNumber - 1).minutes
 
     internal fun messageIdFor(messageNumber: Int): String = "<fixture-$messageNumber@$MESSAGE_ID_DOMAIN>"
@@ -116,6 +121,16 @@ class FolderBuilder internal constructor(
     fun message(block: MessageBuilder.() -> Unit) {
         val messageNumber = user.nextMessageNumber()
         state.messages += MessageBuilder(messageNumber).apply(block).build()
+    }
+
+    /**
+     * Declares a message with [subject]; [block] adds anything else. Shorthand for tests where only the subject matters.
+     */
+    fun message(subject: String, block: MessageBuilder.() -> Unit = {}) {
+        message {
+            this.subject(subject)
+            block()
+        }
     }
 
     /**
