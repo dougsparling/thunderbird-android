@@ -251,6 +251,7 @@ include(
     ":mail:protocols:pop3",
     ":mail:protocols:smtp",
     ":mail:testserver:fixture",
+    ":mail:testserver:provision",
 )
 
 include(
