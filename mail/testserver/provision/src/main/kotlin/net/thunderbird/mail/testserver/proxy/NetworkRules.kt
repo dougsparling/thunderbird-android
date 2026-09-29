@@ -27,7 +27,10 @@ enum class CommandTiming {
     AFTER_SERVER_RESPONDS,
 }
 
-/** What the proxy does when a rule fires. Actions run in order; disconnect, reset, stall and refuse end the list. */
+/**
+ * What the proxy does when a rule fires. Actions run in order; disconnect, reset, stall, refuse and respond end the
+ * list.
+ */
 sealed interface FaultAction {
     val description: String
 
@@ -63,6 +66,15 @@ sealed interface FaultAction {
     data object Refuse : FaultAction {
         override val description = "refuse"
     }
+
+    /**
+     * Only valid in `beforeServerSees` command rules. The proxy answers the command itself with the client's tag
+     * followed by [text], e.g. `a12 NO [UNAVAILABLE] Try again later`, and drops the command (including any literal
+     * data belonging to it), so the server never sees it. The connection stays open.
+     */
+    data class Respond(val text: String) : FaultAction {
+        override val description = "respond \"$text\""
+    }
 }
 
 /** What makes a [FaultRule] fire. */
@@ -70,15 +82,33 @@ sealed interface FaultTrigger {
     val description: String
 
     /**
-     * A client command line whose command name equals [name] (upper case, single spaces, e.g. `UID FETCH`). Bytes
-     * inside literals and continuation lines are never treated as commands.
+     * A client command line whose command name equals [name] (upper case, single spaces, e.g. `UID FETCH`) and, if
+     * [arguments] is set, whose arguments match it. Bytes inside literals and continuation lines are never treated as
+     * commands.
      */
-    data class ImapCommand(val name: String, val timing: CommandTiming) : FaultTrigger {
+    data class ImapCommand(
+        val name: String,
+        val timing: CommandTiming,
+        val arguments: ArgumentsMatcher? = null,
+    ) : FaultTrigger {
         override val description: String
-            get() = "onCommand $name " + when (timing) {
+            get() = "onCommand $name" + arguments?.let { " [${it.label}]" }.orEmpty() + " " + when (timing) {
                 CommandTiming.BEFORE_SERVER_SEES -> "beforeServerSees"
                 CommandTiming.AFTER_SERVER_RESPONDS -> "afterServerResponds"
             }
+
+        /** True if a command called [commandName] with [commandArguments] triggers this rule. */
+        fun matches(commandName: String, commandArguments: String): Boolean =
+            name == commandName && arguments?.predicate?.invoke(commandArguments) != false
+    }
+
+    /**
+     * Decides from a command's arguments whether an [ImapCommand] rule fires. The arguments are the rest of the
+     * command line after the command name, as sent (e.g. `1:* (FLAGS)` for `a5 UID FETCH 1:* (FLAGS)`), without the
+     * line terminator and without literal data. [label] names the matcher in rule descriptions and the transcript.
+     */
+    class ArgumentsMatcher(val label: String, val predicate: (arguments: String) -> Boolean) {
+        override fun toString() = "ArgumentsMatcher($label)"
     }
 
     /**
@@ -224,8 +254,9 @@ class NetworkRulesBuilder internal constructor() {
         trigger: FaultTrigger,
         actions: FaultActionsBuilder.() -> Unit,
         allowRefuse: Boolean = false,
+        allowRespond: Boolean = false,
     ): RuleHandle {
-        val actionList = FaultActionsBuilder().apply(actions).build(allowRefuse)
+        val actionList = FaultActionsBuilder().apply(actions).build(allowRefuse, allowRespond)
         val entry = RuleEntry(trigger, actionList)
         entries += entry
         return RuleHandle(entry)
@@ -264,10 +295,28 @@ class ImapRulesBuilder internal constructor(private val parent: NetworkRulesBuil
      * Matches client commands by name, case-insensitively, after the tag. Use the full name for two-word commands:
      * `onCommand("UID FETCH")` matches `a1 UID FETCH ...` but `onCommand("FETCH")` does not.
      */
-    fun onCommand(name: String): CommandRuleBuilder {
+    fun onCommand(name: String): CommandRuleBuilder = commandRule(name, arguments = null)
+
+    /**
+     * Like [onCommand], but only matches commands whose arguments satisfy [predicate], e.g. flag-only fetches:
+     *
+     * ```
+     * imap.onCommand("UID FETCH") { args -> "FLAGS" in args && "BODY" !in args }
+     * ```
+     *
+     * The arguments are the rest of the command line after the command name, see [FaultTrigger.ArgumentsMatcher].
+     * [label] names the predicate in rule descriptions and the transcript.
+     */
+    fun onCommand(
+        name: String,
+        label: String = "<arguments predicate>",
+        predicate: (arguments: String) -> Boolean,
+    ): CommandRuleBuilder = commandRule(name, FaultTrigger.ArgumentsMatcher(label, predicate))
+
+    private fun commandRule(name: String, arguments: FaultTrigger.ArgumentsMatcher?): CommandRuleBuilder {
         val normalized = ImapSyntax.normalizeCommandName(name)
         require(normalized.isNotEmpty()) { "command name must not be blank" }
-        return CommandRuleBuilder(parent, normalized)
+        return CommandRuleBuilder(parent, normalized, arguments)
     }
 
     /** Matches server response lines. [label] names the rule in the transcript. */
@@ -277,14 +326,21 @@ class ImapRulesBuilder internal constructor(private val parent: NetworkRulesBuil
 }
 
 @NetworkRulesDsl
-class CommandRuleBuilder internal constructor(private val parent: NetworkRulesBuilder, private val name: String) {
-    /** See [CommandTiming.BEFORE_SERVER_SEES]. */
-    fun beforeServerSees(actions: FaultActionsBuilder.() -> Unit): RuleHandle =
-        parent.add(FaultTrigger.ImapCommand(name, CommandTiming.BEFORE_SERVER_SEES), actions)
+class CommandRuleBuilder internal constructor(
+    private val parent: NetworkRulesBuilder,
+    private val name: String,
+    private val arguments: FaultTrigger.ArgumentsMatcher?,
+) {
+    /** See [CommandTiming.BEFORE_SERVER_SEES]. The only timing that allows `respond()`. */
+    fun beforeServerSees(actions: FaultActionsBuilder.() -> Unit): RuleHandle = parent.add(
+        FaultTrigger.ImapCommand(name, CommandTiming.BEFORE_SERVER_SEES, arguments),
+        actions,
+        allowRespond = true,
+    )
 
     /** See [CommandTiming.AFTER_SERVER_RESPONDS]. */
     fun afterServerResponds(actions: FaultActionsBuilder.() -> Unit): RuleHandle =
-        parent.add(FaultTrigger.ImapCommand(name, CommandTiming.AFTER_SERVER_RESPONDS), actions)
+        parent.add(FaultTrigger.ImapCommand(name, CommandTiming.AFTER_SERVER_RESPONDS, arguments), actions)
 }
 
 @NetworkRulesDsl
@@ -325,9 +381,22 @@ class FaultActionsBuilder internal constructor() {
         actions += FaultAction.Refuse
     }
 
-    internal fun build(allowRefuse: Boolean): List<FaultAction> {
+    /**
+     * See [FaultAction.Respond]: answers the command with its tag and [text], e.g. `respond("NO [UNAVAILABLE] Busy")`.
+     * Only allowed in `beforeServerSees`.
+     */
+    fun respond(text: String) {
+        require(text.isNotBlank()) { "response text must not be blank" }
+        require('\r' !in text && '\n' !in text) { "response text must be a single line" }
+        actions += FaultAction.Respond(text)
+    }
+
+    internal fun build(allowRefuse: Boolean, allowRespond: Boolean): List<FaultAction> {
         require(actions.isNotEmpty()) { "A rule needs at least one action" }
         require(allowRefuse || FaultAction.Refuse !in actions) { "refuse() is only allowed in onConnect rules" }
+        require(allowRespond || actions.none { it is FaultAction.Respond }) {
+            "respond() is only allowed in beforeServerSees command rules"
+        }
         val terminalIndex = actions.indexOfFirst { it.isTerminal }
         require(terminalIndex == -1 || terminalIndex == actions.lastIndex) {
             "${actions[terminalIndex].description} ends the connection and must be the last action"

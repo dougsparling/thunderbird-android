@@ -11,6 +11,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * One proxied connection: the accepted client socket, its upstream socket and one pump per direction.
@@ -39,6 +41,10 @@ internal class ProxyConnection(
     @Volatile
     private var upstream: Socket? = null
 
+    /** The server-to-client pump; the client-to-server pump writes responses the proxy makes up through it. */
+    @Volatile
+    private var downstream: Pump? = null
+
     @Volatile
     private var stalled = false
 
@@ -62,7 +68,8 @@ internal class ProxyConnection(
             rules.matchConnect(connectionNumber)?.let { runActions(it, context = "", flush = {}) }
 
             val upstreamSocket = connectUpstream() ?: return
-            startThread("c$id-down") { Pump(Direction.DOWNSTREAM, upstreamSocket, client).run() }
+            val downstreamPump = Pump(Direction.DOWNSTREAM, upstreamSocket, client).also { downstream = it }
+            startThread("c$id-down") { downstreamPump.run() }
             Pump(Direction.UPSTREAM, client, upstreamSocket).run()
         } catch (_: ConnectionEnded) {
             // Ended by a rule; already recorded.
@@ -109,11 +116,22 @@ internal class ProxyConnection(
         }
     }
 
-    /** Runs the rule's actions in order. Throws [ConnectionEnded] if an action ends the connection. */
-    private fun runActions(rule: FaultRule, context: String, flush: () -> Unit) {
+    /**
+     * Runs the rule's actions in order. Throws [ConnectionEnded] if an action ends the connection. Returns true if an
+     * action answered the client's command ([FaultAction.Respond]) with the command's [tag], so the command must not
+     * be forwarded.
+     */
+    private fun runActions(rule: FaultRule, context: String, flush: () -> Unit, tag: String? = null): Boolean {
         for (action in rule.actions) {
             transcriber.fault("${action.description} (rule: ${rule.description})$context")
             when (action) {
+                is FaultAction.Respond -> {
+                    val commandTag = checkNotNull(tag) { "respond() used outside a command rule" }
+                    val pump = checkNotNull(downstream) { "respond() before the server connection was set up" }
+                    pump.inject("$commandTag ${action.text}\r\n".toByteArray(Charsets.UTF_8))
+                    return true
+                }
+
                 is FaultAction.Delay -> {
                     flush()
                     pause(action.duration.inWholeNanoseconds)
@@ -132,6 +150,7 @@ internal class ProxyConnection(
                 }
             }
         }
+        return false
     }
 
     private fun endConnection(flush: () -> Unit, reason: String, reset: Boolean): Nothing {
@@ -154,6 +173,7 @@ internal class ProxyConnection(
         if (endedDirections.incrementAndGet() == Direction.entries.size) terminate("both sides closed", reset = false)
     }
 
+    @Suppress("TooManyFunctions")
     private inner class Pump(
         private val direction: Direction,
         private val source: Socket,
@@ -165,6 +185,29 @@ internal class ProxyConnection(
         private val buffer = ByteArray(BUFFER_SIZE)
         private val counter = forwarded.getValue(direction)
         private val sourceName = if (direction == Direction.UPSTREAM) "client" else "server"
+
+        /** Guards [output] and [midStatement] between this pump and [inject]. */
+        private val writeLock = ReentrantLock()
+        private val statementEnded = writeLock.newCondition()
+
+        /** True while a statement is partly written (a line waits for its literal or end). Guarded by [writeLock]. */
+        private var midStatement = false
+
+        /** True while the rest of a command the proxy answered itself (its literal data) is being dropped. */
+        private var droppingCommand = false
+
+        /**
+         * Writes [bytes] to this pump's destination between two statements, never in the middle of one, e.g. a
+         * response the proxy makes up while the server is sending a FETCH response with a literal.
+         */
+        fun inject(bytes: ByteArray) {
+            writeLock.withLock {
+                while (midStatement && !terminating.get()) statementEnded.await(INJECT_WAIT_MS, TimeUnit.MILLISECONDS)
+                if (terminating.get()) throw ConnectionEnded()
+                output.write(bytes)
+                output.flush()
+            }
+        }
 
         fun run() {
             try {
@@ -218,6 +261,34 @@ internal class ProxyConnection(
         }
 
         private fun handle(segment: FrameSegment) {
+            if (droppingCommand) {
+                dropCommandRest(segment)
+                return
+            }
+            writeLock.withLock {
+                forward(segment)
+                midStatement = !opaque && when (segment) {
+                    is FrameSegment.LiteralData -> true
+                    is FrameSegment.Line -> !segment.complete || segment.literalFollows != null
+                }
+                if (!midStatement) statementEnded.signalAll()
+            }
+        }
+
+        /** Drops literal data and continuation lines of a command the proxy answered itself. */
+        private fun dropCommandRest(segment: FrameSegment) {
+            when (segment) {
+                is FrameSegment.LiteralData -> transcriber.literal(direction, segment)
+
+                is FrameSegment.Line -> {
+                    transcriber.line(direction, segment)
+                    droppingCommand = !segment.complete || segment.literalFollows != null
+                }
+            }
+            if (!droppingCommand) transcriber.event("dropped the rest of the command answered by the proxy")
+        }
+
+        private fun forward(segment: FrameSegment) {
             when {
                 opaque -> {
                     transcriber.raw(direction, segment.bytes.size)
@@ -240,7 +311,10 @@ internal class ProxyConnection(
                 !isStatement -> false
 
                 direction == Direction.UPSTREAM -> {
-                    onClientCommand(line)
+                    if (onClientCommand(line)) {
+                        dropAnsweredCommand(line)
+                        return
+                    }
                     false
                 }
 
@@ -256,15 +330,35 @@ internal class ProxyConnection(
             }
         }
 
-        private fun onClientCommand(line: FrameSegment.Line) {
-            val command = ImapSyntax.parseCommand(line.text) ?: return
+        /** Returns true if a rule answered the command, so it must not be forwarded. */
+        private fun onClientCommand(line: FrameSegment.Line): Boolean {
+            val command = ImapSyntax.parseCommand(line.text) ?: return false
             if (command.name == "COMPRESS" || command.name == "STARTTLS") opaqueStreamTag = command.tag
 
-            val rule = currentRules().matchCommand(command.name) ?: return
-            val trigger = rule.trigger as FaultTrigger.ImapCommand
-            when (trigger.timing) {
-                CommandTiming.BEFORE_SERVER_SEES -> runActions(rule, " - held before the server saw it", ::flush)
-                CommandTiming.AFTER_SERVER_RESPONDS -> awaitingResponse[command.tag] = rule
+            val rule = currentRules().matchCommand(command.name, command.arguments)
+            return when ((rule?.trigger as? FaultTrigger.ImapCommand)?.timing) {
+                null -> false
+
+                CommandTiming.BEFORE_SERVER_SEES ->
+                    runActions(checkNotNull(rule), " - held before the server saw it", ::flush, tag = command.tag)
+
+                CommandTiming.AFTER_SERVER_RESPONDS -> {
+                    awaitingResponse[command.tag] = checkNotNull(rule)
+                    false
+                }
+            }
+        }
+
+        /**
+         * After the proxy answered a command, its literal data (if any) must not reach the server either. A client
+         * only sends a synchronizing literal after a `+`, which never comes, so there is nothing to drop then.
+         */
+        private fun dropAnsweredCommand(line: FrameSegment.Line) {
+            if (line.literalFollows == null) return
+            if (ImapSyntax.endsWithSynchronizingLiteral(line.text)) {
+                framer.cancelLiteral()
+            } else {
+                droppingCommand = true
             }
         }
 
@@ -334,6 +428,7 @@ internal class ProxyConnection(
         const val UPSTREAM_CONNECT_TIMEOUT_MS = 10_000
         const val PARTIAL_LINE_FLUSH_MS = 200
         const val THROTTLE_SLICES_PER_SECOND = 20
+        const val INJECT_WAIT_MS = 50L
     }
 }
 

@@ -157,6 +157,107 @@ class FaultProxyTest {
     }
 
     @Test
+    fun `respond answers the command without the server seeing it and keeps the connection`() {
+        testSubject.apply(
+            networkRules {
+                imap.onCommand("NOOP").beforeServerSees { respond("NO [UNAVAILABLE] Later") }
+            },
+        )
+        val client = connect()
+
+        val answered = client.command("a1", "NOOP")
+        val forwarded = client.command("a2", "NOOP")
+
+        assertThat(answered).containsExactly("a1 NO [UNAVAILABLE] Later")
+        assertThat(forwarded).containsExactly("a2 OK NOOP done")
+        assertThat(server.commands.map { it.tag }).containsExactly("a2")
+        assertThat(testSubject.transcript()).contains(
+            "[c1] !! respond \"NO [UNAVAILABLE] Later\" (rule: onCommand NOOP beforeServerSees) - held before the " +
+                "server saw it",
+        )
+    }
+
+    @Test
+    fun `respond drops the non-synchronizing literal of the answered command`() {
+        testSubject.apply(networkRules { imap.onCommand("APPEND").beforeServerSees { respond("NO [OVERQUOTA] Full") } })
+        val client = connect()
+
+        client.send("a1 APPEND INBOX {11+}\r\na2 NOOP x!\r\n")
+        val answered = client.readLine()
+        val next = client.command("a3", "NOOP")
+
+        assertThat(answered).isEqualTo("a1 NO [OVERQUOTA] Full")
+        assertThat(next).containsExactly("a3 OK NOOP done")
+        assertThat(server.commands.map { it.raw }).containsExactly("a3 NOOP")
+    }
+
+    @Test
+    fun `respond to a command with a synchronizing literal lets the next command through`() {
+        testSubject.apply(networkRules { imap.onCommand("APPEND").beforeServerSees { respond("NO [OVERQUOTA] Full") } })
+        val client = connect()
+
+        client.send("a1 APPEND INBOX {5}\r\n")
+        val answered = client.readLine()
+        val next = client.command("a2", "NOOP")
+
+        assertThat(answered).isEqualTo("a1 NO [OVERQUOTA] Full")
+        assertThat(next).containsExactly("a2 OK NOOP done")
+        assertThat(server.commands.map { it.raw }).containsExactly("a2 NOOP")
+    }
+
+    @Test
+    fun `respond waits for the server to finish a response that is in flight`() {
+        val partial = "* 1 FETCH (BODY[] {10}\r\n01234"
+        ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { upstream ->
+            val serverThread = Thread {
+                upstream.accept().use { socket ->
+                    val output = socket.getOutputStream()
+                    output.writeAscii("* OK slow ready\r\n")
+                    socket.getInputStream().bufferedReader(Charsets.ISO_8859_1).readLine()
+                    output.writeAscii(partial)
+                    Thread.sleep(SLOW_SERVER_PAUSE_MS)
+                    output.writeAscii("56789)\r\na1 OK FETCH done\r\n")
+                    socket.getInputStream().read()
+                }
+            }.apply { start() }
+            FaultProxy.start("127.0.0.1", upstream.localPort).use { proxy ->
+                proxy.apply(networkRules { imap.onCommand("NOOP").beforeServerSees { respond("NO busy") } })
+                val client = TestClient(proxy.port).also { clients += it }
+                client.readLine()
+
+                client.send("a1 FETCH 1 (BODY[])\r\n")
+                val first = String(client.readExactly(partial.length), Charsets.ISO_8859_1)
+                client.send("a2 NOOP\r\n")
+                val rest = List(3) { client.readLine() }
+
+                assertThat(first).isEqualTo(partial)
+                assertThat(rest[0]).isEqualTo("56789)")
+                assertThat(rest.drop(1).toSet()).isEqualTo(setOf("a1 OK FETCH done", "a2 NO busy"))
+                client.close()
+            }
+            serverThread.join(5_000)
+        }
+    }
+
+    @Test
+    fun `command argument predicates select which commands a rule applies to`() {
+        testSubject.apply(
+            networkRules {
+                imap.onCommand("UID FETCH") { args -> "FLAGS" in args && "BODY" !in args }
+                    .beforeServerSees { respond("NO flags unavailable") }
+                    .always()
+            },
+        )
+        val client = connect()
+
+        val flags = client.command("a1", "UID FETCH 1:* (UID FLAGS)")
+        val body = client.command("a2", "UID FETCH 1 (UID BODY.PEEK[HEADER])")
+
+        assertThat(flags).containsExactly("a1 NO flags unavailable")
+        assertThat(body).containsExactly("a2 OK UID FETCH done")
+    }
+
+    @Test
     fun `rule counts are consumed across connections`() {
         testSubject.apply(networkRules { imap.onCommand("NOOP").beforeServerSees { disconnect() }.times(2) })
 
@@ -382,5 +483,6 @@ class FaultProxyTest {
     private companion object {
         const val LITERAL_SIZE = 20480
         val DELAY = 300.milliseconds
+        const val SLOW_SERVER_PAUSE_MS = 300L
     }
 }

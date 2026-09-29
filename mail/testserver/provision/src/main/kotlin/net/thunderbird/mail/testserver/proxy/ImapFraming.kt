@@ -78,6 +78,17 @@ internal class ImapFramer(private val maxLineBytes: Int = DEFAULT_MAX_LINE_BYTES
         return segments
     }
 
+    /**
+     * Forgets a literal announced at the end of the last line, for when the literal will never be sent: the client
+     * waits for a continuation request before sending a synchronizing literal, and doesn't send it if the command is
+     * answered instead. The next line is then a new statement rather than a continuation.
+     */
+    fun cancelLiteral() {
+        literalSize = 0
+        literalRemaining = 0
+        nextLineIsContinuation = false
+    }
+
     /** Emits the bytes of an incomplete line, e.g. a prompt that is not terminated. The rest becomes a continuation. */
     fun flushPartialLine(): FrameSegment.Line? {
         if (line.size() == 0) return null
@@ -138,6 +149,10 @@ internal object ImapSyntax {
     data class Command(val tag: String, val name: String, val arguments: String)
 
     fun literalAtEnd(line: String): Long? = LITERAL_AT_END.find(line)?.groupValues?.get(1)?.toLong()
+
+    /** True if [line] ends with a synchronizing literal (`{n}`), which the client only sends after a `+`. */
+    fun endsWithSynchronizingLiteral(line: String): Boolean =
+        LITERAL_AT_END.find(line)?.value?.endsWith("+}") == false
 
     fun normalizeCommandName(name: String): String = name.trim().split(WHITESPACE).joinToString(" ").uppercase()
 

@@ -60,6 +60,28 @@ class RuleEngineTest {
     }
 
     @Test
+    fun `argument predicates see the rest of the command line`() {
+        val seen = mutableListOf<String>()
+        val testSubject = RuleEngine(
+            networkRules {
+                imap.onCommand("UID FETCH", label = "flags only") { args ->
+                    seen += args
+                    "FLAGS" in args && "BODY" !in args
+                }.beforeServerSees { disconnect() }.always()
+            },
+        )
+
+        val bodyFetch = testSubject.matchCommand("UID FETCH", "1:* (UID BODY.PEEK[])")
+        val otherCommand = testSubject.matchCommand("UID STORE", "1 +FLAGS (\\Seen)")
+        val flagFetch = testSubject.matchCommand("UID FETCH", "1:* (UID FLAGS)")
+
+        assertThat(bodyFetch).isNull()
+        assertThat(otherCommand).isNull()
+        assertThat(flagFetch).isNotNull()
+        assertThat(seen).containsExactly("1:* (UID BODY.PEEK[])", "1:* (UID FLAGS)")
+    }
+
+    @Test
     fun `connect rules match by connection number since applied`() {
         val testSubject = RuleEngine(networkRules { onConnect(2) { refuse() } })
 

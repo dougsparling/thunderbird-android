@@ -28,9 +28,9 @@ internal class RuleEngine(val rules: NetworkRules) {
             (trigger.connectionNumber == null || trigger.connectionNumber == connectionNumber)
     }
 
-    /** [commandName] as produced by [ImapSyntax.parseCommand]. */
-    fun matchCommand(commandName: String): FaultRule? = match { trigger ->
-        trigger is FaultTrigger.ImapCommand && trigger.name == commandName
+    /** [commandName] and [arguments] as produced by [ImapSyntax.parseCommand]. */
+    fun matchCommand(commandName: String, arguments: String = ""): FaultRule? = match { trigger ->
+        trigger is FaultTrigger.ImapCommand && trigger.matches(commandName, arguments)
     }
 
     /** [line] is the response line without its terminator. */
