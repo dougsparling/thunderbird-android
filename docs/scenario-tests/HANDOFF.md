@@ -161,3 +161,12 @@ failures (Given/When/Then, issue numbers, file:line, observed failure). Commit t
   accepted the UI gap for now.
 - A CI server matrix (Dovecot, Stalwart) was discussed; the provisioning layer is server-agnostic except the James
   adapter. Docker is deliberately not required.
+
+## Scenario status (2026-09-29)
+
+All non-[BACKLOG] plan items are written and committed: 26 pass (31 scenarios in the suite, all green with
+`-PscenarioTests`). Three are out of the suite and documented in [`backlog.md`](backlog.md): A3 and A9 fail because of
+app behaviour; C4 needs a harness way to change INBOX's UIDVALIDITY. Written by opencode (DeepSeek Flash) and Claude
+Sonnet subagents with self-verification (pass, invert key assertion → fail, restore); only spot-checked by hand.
+Delegation lesson: opencode auto-rejects tool calls outside the repo (e.g. `/tmp`) and ends the session, so task
+prompts must say to stay inside the repo.
