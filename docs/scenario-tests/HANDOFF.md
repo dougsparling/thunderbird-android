@@ -74,6 +74,9 @@ A scenario (`scenario { … }`) sees:
   (`ImapSync.kt:229,247`), and the offset keeps the scenario clock ahead of those writes. `MessagingController` uses
   the injected clock only for the "folder checked too recently" check (`MessagingController.java` ~:2498). The folder
   list staleness check (`:628`) still uses the wall clock.
+- **Background work and the network:** due WorkManager work that needs a network (the periodic mail sync does) waits
+  while `device.setOnline(false)` and runs once the device is back online, as on Android. To make a sync run and fail,
+  keep the device online and break the server path with network rules (`refuseConnections()` + `proxy.disconnectAll()`).
 - **WorkManager** is replaced with the test implementation (`SynchronousExecutor`, scenario clock via
   `Configuration.setClock`) before the app first gets it from Koin; a check fails loudly if that ever changes. The
   test scheduler resets constraints after every run, so due work is triggered with delays met first, constraints last.
@@ -164,9 +167,16 @@ failures (Given/When/Then, issue numbers, file:line, observed failure). Commit t
 
 ## Scenario status (2026-09-29)
 
-All non-[BACKLOG] plan items are written and committed: 26 pass (31 scenarios in the suite, all green with
-`-PscenarioTests`). Three are out of the suite and documented in [`backlog.md`](backlog.md): A3 and A9 fail because of
+All non-[BACKLOG] plan items are written and committed: 26 pass (31 scenarios in the suite at the time, all green
+with `-PscenarioTests`). Three are out of the suite and documented in [`backlog.md`](backlog.md): A3 and A9 fail because of
 app behaviour; C4 needs a harness way to change INBOX's UIDVALIDITY. Written by opencode (DeepSeek Flash) and Claude
-Sonnet subagents with self-verification (pass, invert key assertion → fail, restore); only spot-checked by hand.
+Sonnet subagents with self-verification (pass, invert key assertion → fail, restore).
+
+Review (2026-09-30) found that self-verification doesn't catch assertions the app satisfies for another reason, so
+review delegated scenarios for that. Fixed since: A8 (archiving marks read by itself, so the order is now checked
+after the dropped connection), C11 (split: server unreachable while online →
+`PeriodicSyncRetryAfterNetworkFailureScenarioTest`; device offline → `PeriodicSyncWaitsForNetworkScenarioTest`), C8/C10
+(time no longer advances without bound inside `eventually`), C5/C6/B5/B11 tightened, A10 renamed to
+`OfflineChangesAllReachServerScenarioTest` (the order of independent changes isn't pinned). 32 scenarios, all green.
 Delegation lesson: opencode auto-rejects tool calls outside the repo (e.g. `/tmp`) and ends the session, so task
 prompts must say to stay inside the repo.
