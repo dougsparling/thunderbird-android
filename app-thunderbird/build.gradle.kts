@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.dependency.guard)
     alias(libs.plugins.tb.app.badging)
     alias(libs.plugins.tb.app.versioning)
+    alias(libs.plugins.tb.testserver.scenario)
 }
 
 val testCoverageEnabled = providers
@@ -278,6 +279,18 @@ dependencies {
     testImplementation(projects.feature.changelog.internal)
 
     testImplementation(libs.appauth)
+
+    // Scenario tests: the real app against a test mail server, see src/test/.../scenario
+    testImplementation(projects.mail.testserver.provision)
+    testImplementation(projects.feature.account.setup)
+    testImplementation(projects.mail.protocols.imap)
+    testImplementation(libs.robolectric)
+    jamesServer(libs.james.server.memory.app)
+}
+
+scenarioTests {
+    packageName = "net.thunderbird.android.scenario"
+    defaultTestTask = "testFossDebugUnitTest"
 }
 
 dependencyGuard {
