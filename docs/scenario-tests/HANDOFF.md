@@ -177,6 +177,17 @@ review delegated scenarios for that. Fixed since: A8 (archiving marks read by it
 after the dropped connection), C11 (split: server unreachable while online →
 `PeriodicSyncRetryAfterNetworkFailureScenarioTest`; device offline → `PeriodicSyncWaitsForNetworkScenarioTest`), C8/C10
 (time no longer advances without bound inside `eventually`), C5/C6/B5/B11 tightened, A10 renamed to
-`OfflineChangesAllReachServerScenarioTest` (the order of independent changes isn't pinned). 32 scenarios, all green.
+`OfflineChangesAllReachServerScenarioTest` (the order of independent changes isn't pinned).
+
+Cleanup (2026-09-30): scenarios follow the house test style (`// Arrange` / `// Act` / `// Assert`, see the rules in
+`ScenarioTest`'s KDoc) and use shared helpers: `message("Subject")` in the fixture DSL (messages without a From get
+`FixtureDefaults.SENDER`), `driver.subjects(account, folder)` / `driver.message(account, folder, subject)`,
+`ServerFolderState.subjects`, and `TRASH`. Scenarios no longer refresh INBOX or the folder list right after adding an
+account (setup already did), and no longer assert fixture state the harness guarantees. C9 is split into
+`PushSeesOtherClientStarScenarioTest` and `PushSeesOtherClientExpungeScenarioTest`. 33 scenarios.
+
+Known flake: `WrongPasswordScenarioTest` failed once in a full parallel run (no auth-error notification within the
+20 s `eventually`, though the transcript shows the failed logins) and passes alone. Not investigated yet.
+
 Delegation lesson: opencode auto-rejects tool calls outside the repo (e.g. `/tmp`) and ends the session, so task
 prompts must say to stay inside the repo.
