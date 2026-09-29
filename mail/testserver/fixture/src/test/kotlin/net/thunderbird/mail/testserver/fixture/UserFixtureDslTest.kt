@@ -159,6 +159,26 @@ class UserFixtureDslTest {
     }
 
     @Test
+    fun `should continue default numbering from firstMessageNumber`() {
+        val testSubject = userFixture(firstMessageNumber = 3) {
+            inbox {
+                message { }
+            }
+        }
+
+        val message = testSubject.folders.single().messages.single()
+        assertThat(message.messageId).isEqualTo("<fixture-3@testserver.invalid>")
+        assertThat(message.internalDate).isEqualTo(FixtureDefaults.BASE_DATE + 2.minutes)
+    }
+
+    @Test
+    fun `should reject firstMessageNumber below one`() {
+        assertFailure {
+            userFixture(firstMessageNumber = 0) { }
+        }.isInstanceOf<IllegalArgumentException>()
+    }
+
+    @Test
     fun `should default subject to null and internal date to message date`() {
         val date = Instant.parse("2024-03-01T10:00:00Z")
 

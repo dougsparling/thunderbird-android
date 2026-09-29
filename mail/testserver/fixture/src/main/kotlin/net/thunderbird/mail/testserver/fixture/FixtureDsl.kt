@@ -16,9 +16,17 @@ annotation class FixtureDsl
  * Folders are emitted in the order they are first declared, including folders without messages. Declaring the same
  * folder path more than once merges the declarations: messages are appended in declaration order, and a special use
  * given in one declaration applies to the folder. Two different special uses for the same folder are an error.
+ *
+ * Messages are numbered from [firstMessageNumber] for their default Message-ID and Date. Pass the next free number
+ * when adding messages to a user that already has some, so the defaults stay unique.
  */
-fun userFixture(password: String = "password", block: UserFixtureBuilder.() -> Unit): UserFixture {
-    return UserFixtureBuilder(password).apply(block).build()
+fun userFixture(
+    password: String = "password",
+    firstMessageNumber: Int = 1,
+    block: UserFixtureBuilder.() -> Unit,
+): UserFixture {
+    require(firstMessageNumber >= 1) { "firstMessageNumber must be at least 1" }
+    return UserFixtureBuilder(password, firstMessageNumber).apply(block).build()
 }
 
 /**
@@ -44,9 +52,9 @@ object FixtureDefaults {
 }
 
 @FixtureDsl
-class UserFixtureBuilder internal constructor(private val password: String) {
+class UserFixtureBuilder internal constructor(private val password: String, firstMessageNumber: Int) {
     private val folders = LinkedHashMap<FolderPath, FolderState>()
-    private var messageCounter = 0
+    private var messageCounter = firstMessageNumber - 1
 
     /**
      * Declares messages in the inbox ([FolderPath.INBOX]).
