@@ -24,16 +24,16 @@ class DefaultServerStateReader(
         }
 
     private fun readFolder(session: ImapSession, name: String, delimiter: Char?): ServerFolderState {
-        val exists = session.examine(name)
-        val messages = if (exists == 0) emptyList() else session.uidFetchHeaders().map { it.toMessageState() }
+        val status = session.examine(name)
+        val messages = if (status.exists == 0) emptyList() else session.uidFetchHeaders().map { it.toMessageState() }
         return ServerFolderState(
             path = folderPathFromServerName(name, delimiter),
             messages = messages.sortedBy { it.uid },
+            uidValidity = status.uidValidity,
         )
     }
 
     private fun FetchedMessage.toMessageState(): ServerMessageState {
-        val subject = header?.let { MessageHeaders.value(it, "Subject") }?.let(MessageHeaders::decodeEncodedWords)
         val messageId = header?.let { MessageHeaders.value(it, "Message-ID") }
         return ServerMessageState(
             uid = uid,

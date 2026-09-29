@@ -36,20 +36,32 @@ data class ReceivedCommand(
 
 class FakeMessage(
     val uid: Long,
-    val flags: List<String>,
+    var flags: List<String>,
     val internalDate: String?,
     val content: String,
 )
 
-class FakeMailbox(val attributes: List<String> = emptyList()) {
+class FakeMailbox(val attributes: List<String> = emptyList(), val uidValidity: Long = nextUidValidity()) {
     val messages: MutableList<FakeMessage> = Collections.synchronizedList(mutableListOf())
     var nextUid = 1L
+
+    fun add(message: FakeMessage) {
+        messages.add(FakeMessage(nextUid++, message.flags, message.internalDate, message.content))
+    }
+
+    private companion object {
+        private val uidValidities = java.util.concurrent.atomic.AtomicLong(0)
+
+        fun nextUidValidity(): Long = uidValidities.incrementAndGet()
+    }
 }
 
 /**
  * A small in-memory IMAP server on a local socket, good enough to drive the seeder and state reader.
  *
- * It understands the commands those use, records every command it receives, and can be told to fail a command.
+ * It understands the commands those and the mailbox editor use, records every command it receives, and can be told
+ * to fail a command. `UID FETCH` always returns every message; `UID STORE`, `UID EXPUNGE`, `UID COPY` and `UID MOVE`
+ * take a single UID.
  * CREATE does not create missing parents, so tests notice when the client forgets to create them.
  * Mailbox names are stored as sent on the wire (modified UTF-7).
  */
@@ -121,6 +133,7 @@ class FakeImapServer(
         private var authenticated = false
         private var selected: FakeMailbox? = null
 
+        @Suppress("CyclomaticComplexMethod")
         fun handle(command: ReceivedCommand) {
             val failure = failures[command.name]
             if (failure != null) {
@@ -133,8 +146,16 @@ class FakeImapServer(
                 "LIST" -> list(command.args)
                 "CREATE" -> create(command.args)
                 "APPEND" -> append(command.args)
-                "EXAMINE" -> examine(command.args)
+                "EXAMINE" -> open(command.args, "READ-ONLY")
+                "SELECT" -> open(command.args, "READ-WRITE")
                 "UID FETCH" -> uidFetch()
+                "UID STORE" -> uidStore(command.args)
+                "UID EXPUNGE" -> expunge(command.args.single().text.toLong())
+                "EXPUNGE" -> expunge(uid = null)
+                "UID COPY" -> uidCopy(command.args, move = false)
+                "UID MOVE" -> uidCopy(command.args, move = true)
+                "DELETE" -> delete(command.args)
+                "RENAME" -> rename(command.args)
                 "LOGOUT" -> logout()
                 else -> "BAD Unsupported command"
             }
@@ -197,15 +218,67 @@ class FakeImapServer(
             return "OK APPEND completed"
         }
 
-        private fun examine(args: List<FakeArg>): String {
+        private fun open(args: List<FakeArg>, access: String): String {
             val mailbox = mailboxes[args[0].text] ?: return "NO [NONEXISTENT] No such mailbox"
             selected = mailbox
             output.writeLine("* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)")
             output.writeLine("* ${mailbox.messages.size} EXISTS")
             output.writeLine("* 0 RECENT")
-            output.writeLine("* OK [UIDVALIDITY 1] UIDs valid")
-            return "OK [READ-ONLY] EXAMINE completed"
+            output.writeLine("* OK [UIDVALIDITY ${mailbox.uidValidity}] UIDs valid")
+            return "OK [$access] Mailbox opened"
         }
+
+        private fun uidStore(args: List<FakeArg>): String {
+            val message = selectedMessage(args[0].text.toLong()) ?: return "BAD No such message"
+            val flags = (args[2] as FakeArg.Group).items.map { it.text }
+            val newFlags = when (args[1].text.uppercase()) {
+                "+FLAGS.SILENT" -> (message.flags + flags).distinct()
+                "-FLAGS.SILENT" -> message.flags - flags.toSet()
+                else -> null
+            }
+            newFlags?.let { message.flags = it }
+            return if (newFlags == null) "BAD Unsupported STORE" else "OK UID STORE completed"
+        }
+
+        private fun expunge(uid: Long?): String {
+            val mailbox = selected ?: return "BAD No mailbox selected"
+            mailbox.messages.removeAll { (uid == null || it.uid == uid) && "\\Deleted" in it.flags }
+            return "OK EXPUNGE completed"
+        }
+
+        private fun uidCopy(args: List<FakeArg>, move: Boolean): String {
+            val message = selectedMessage(args[0].text.toLong())
+            val destination = mailboxes[args[1].text]
+            return when {
+                message == null -> "BAD No such message"
+
+                destination == null -> "NO [TRYCREATE] No such mailbox"
+
+                else -> {
+                    destination.add(message)
+                    if (move) selected?.messages?.remove(message)
+                    "OK Done"
+                }
+            }
+        }
+
+        private fun delete(args: List<FakeArg>): String {
+            return if (mailboxes.remove(args[0].text) ==
+                null
+            ) {
+                "NO [NONEXISTENT] No such mailbox"
+            } else {
+                "OK DELETE completed"
+            }
+        }
+
+        private fun rename(args: List<FakeArg>): String {
+            val mailbox = mailboxes.remove(args[0].text) ?: return "NO [NONEXISTENT] No such mailbox"
+            mailboxes[args[1].text] = mailbox
+            return "OK RENAME completed"
+        }
+
+        private fun selectedMessage(uid: Long): FakeMessage? = selected?.messages?.firstOrNull { it.uid == uid }
 
         private fun uidFetch(): String {
             val mailbox = selected ?: return "BAD No mailbox selected"

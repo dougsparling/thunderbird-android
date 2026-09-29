@@ -21,6 +21,9 @@ object TestMailServers {
         specialUseFallback: SpecialUseFallback = SpecialUseFallback.SKIP,
     ): ImapSeeder = DefaultImapSeeder(config.imapHost, config.imapPort, timeouts, specialUseFallback)
 
+    fun mailboxEditor(config: TestServerConfig, timeouts: ImapTimeouts = ImapTimeouts()): MailboxEditor =
+        DefaultMailboxEditor(config.imapHost, config.imapPort, timeouts)
+
     fun stateReader(config: TestServerConfig, timeouts: ImapTimeouts = ImapTimeouts()): ServerStateReader =
         DefaultServerStateReader(config.imapHost, config.imapPort, timeouts)
 }

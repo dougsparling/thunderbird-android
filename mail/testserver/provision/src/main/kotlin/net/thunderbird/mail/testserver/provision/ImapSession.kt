@@ -2,6 +2,7 @@ package net.thunderbird.mail.testserver.provision
 
 import java.io.Closeable
 import java.io.IOException
+import net.thunderbird.mail.testserver.fixture.SystemFlag
 
 /** One entry of a LIST response. [name] is decoded from modified UTF-7; [attributes] are upper-cased. */
 internal data class ListEntry(
@@ -13,18 +14,26 @@ internal data class ListEntry(
         get() = "\\NOSELECT" !in attributes && "\\NONEXISTENT" !in attributes
 }
 
+/** What the server reports when a mailbox is opened. [uidValidity] is null if the server didn't send it. */
+internal data class MailboxStatus(val exists: Int, val uidValidity: Long?)
+
 /** A message from `UID FETCH`. [flags] keep the server's spelling; [header] is the raw fetched header block. */
 internal class FetchedMessage(
     val uid: Long,
     val flags: List<String>,
     val header: ByteArray?,
-)
+) {
+    /** The RFC 2047-decoded Subject header, or null if there is none or no header was fetched. */
+    val subject: String?
+        get() = header?.let { MessageHeaders.value(it, "Subject") }?.let(MessageHeaders::decodeEncodedWords)
+}
 
 /**
  * High-level IMAP commands used by the seeder and the state reader, on top of [ImapConnection].
  *
  * This is deliberately independent of the app's IMAP implementation, so a bug there can't hide itself in the harness.
  */
+@Suppress("TooManyFunctions")
 internal class ImapSession(private val connection: ImapConnection) : Closeable {
     val capabilities: Set<String> get() = connection.capabilities
 
@@ -56,13 +65,73 @@ internal class ImapSession(private val connection: ImapConnection) : Closeable {
         connection.execute("CREATE", parts, context = name)
     }
 
-    /** Opens [name] read-only and returns the number of messages in it. */
-    fun examine(name: String): Int {
-        val responses = connection.execute("EXAMINE", listOf(CommandPart.mailbox(name)), context = name)
-        return responses.filterIsInstance<ImapResponse.UntaggedData>()
+    /** Opens [name] read-only. */
+    fun examine(name: String): MailboxStatus = open("EXAMINE", name)
+
+    /** Opens [name] read-write, for commands that change messages. */
+    fun select(name: String): MailboxStatus = open("SELECT", name)
+
+    private fun open(command: String, name: String): MailboxStatus {
+        val responses = connection.execute(command, listOf(CommandPart.mailbox(name)), context = name)
+        val exists = responses.filterIsInstance<ImapResponse.UntaggedData>()
             .lastOrNull { it.tokens.size >= 2 && (it.tokens[1] as? ImapToken.Atom)?.value.equals("EXISTS", true) }
             ?.let { (it.tokens[0] as ImapToken.Atom).value.toInt() }
-            ?: throw ImapProtocolException("EXAMINE response for '$name' had no EXISTS count")
+            ?: throw ImapProtocolException("$command response for '$name' had no EXISTS count")
+        val uidValidity = responses.filterIsInstance<ImapResponse.UntaggedStatus>()
+            .firstNotNullOfOrNull { UID_VALIDITY_CODE.find(it.text)?.groupValues?.get(1)?.toLong() }
+        return MailboxStatus(exists, uidValidity)
+    }
+
+    fun delete(name: String) {
+        connection.execute("DELETE", listOf(CommandPart.mailbox(name)), context = name)
+    }
+
+    fun rename(from: String, to: String) {
+        connection.execute("RENAME", listOf(CommandPart.mailbox(from), CommandPart.mailbox(to)), context = from)
+    }
+
+    /**
+     * Changes flags of the message with [uid] in the selected mailbox. [operation] is `+FLAGS` or `-FLAGS`; the
+     * `.SILENT` form is used, so the server doesn't answer with the new flags.
+     */
+    fun uidStore(uid: Long, operation: String, flags: List<String>) {
+        require(operation == ADD_FLAGS || operation == REMOVE_FLAGS) { "Unsupported STORE operation $operation" }
+        if (flags.isEmpty()) return
+        connection.execute(
+            "UID STORE",
+            listOf(
+                CommandPart.Raw(uid.toString()),
+                CommandPart.Raw("$operation.SILENT"),
+                CommandPart.Raw(flags.joinToString(" ", prefix = "(", postfix = ")")),
+            ),
+        )
+    }
+
+    /**
+     * Permanently removes messages flagged `\Deleted` from the selected mailbox. With UIDPLUS only the message with
+     * [uid] is removed (`UID EXPUNGE`); without it, every message flagged `\Deleted` is (`EXPUNGE`).
+     */
+    fun expunge(uid: Long) {
+        if (UIDPLUS in capabilities) {
+            connection.execute("UID EXPUNGE", listOf(CommandPart.Raw(uid.toString())))
+        } else {
+            connection.execute("EXPUNGE")
+        }
+    }
+
+    /**
+     * Moves the message with [uid] from the selected mailbox to [destination]. Uses `UID MOVE` (RFC 6851) when the
+     * server supports it, otherwise `UID COPY`, flags the original `\Deleted` and expunges it (see [expunge]).
+     */
+    fun uidMove(uid: Long, destination: String) {
+        val parts = listOf(CommandPart.Raw(uid.toString()), CommandPart.mailbox(destination))
+        if (MOVE in capabilities) {
+            connection.execute("UID MOVE", parts, context = destination)
+        } else {
+            connection.execute("UID COPY", parts, context = destination)
+            uidStore(uid, ADD_FLAGS, listOf(SystemFlag.DELETED.imapName))
+            expunge(uid)
+        }
     }
 
     /**
@@ -106,8 +175,14 @@ internal class ImapSession(private val connection: ImapConnection) : Closeable {
         }
     }
 
-    private companion object {
-        val EMPTY = CommandPart.Raw("\"\"")
+    companion object {
+        const val ADD_FLAGS = "+FLAGS"
+        const val REMOVE_FLAGS = "-FLAGS"
+
+        private val EMPTY = CommandPart.Raw("\"\"")
+        private val UID_VALIDITY_CODE = Regex("^\\[UIDVALIDITY (\\d+)]", RegexOption.IGNORE_CASE)
+        private const val UIDPLUS = "UIDPLUS"
+        private const val MOVE = "MOVE"
     }
 }
 

@@ -57,6 +57,38 @@ interface ImapSeeder {
     fun seed(user: ProvisionedUser, fixture: UserFixture)
 }
 
+/**
+ * Changes a user's mailbox over IMAP the way another mail client would, e.g. the user acting on another device. Works
+ * against any compliant server.
+ *
+ * Messages are identified by their (decoded) Subject header, which must be unique within the folder.
+ */
+interface MailboxEditor {
+    /**
+     * Flags the message `\Deleted` and, if [expunge] is true, expunges it. Without UIDPLUS expunging also removes
+     * every other message in the folder that is flagged `\Deleted`.
+     */
+    fun deleteMessage(user: ProvisionedUser, folder: FolderPath, subject: String, expunge: Boolean = true)
+
+    /** Moves the message to [to]; with `UID MOVE` if the server supports it, otherwise copy, delete and expunge. */
+    fun moveMessage(user: ProvisionedUser, from: FolderPath, subject: String, to: FolderPath)
+
+    /** Adds [add] to and then removes [remove] from the message's flags. */
+    fun setFlags(
+        user: ProvisionedUser,
+        folder: FolderPath,
+        subject: String,
+        add: Set<SystemFlag> = emptySet(),
+        remove: Set<SystemFlag> = emptySet(),
+    )
+
+    /** Deletes the folder and its messages. What happens to subfolders is up to the server (RFC 3501 DELETE). */
+    fun deleteFolder(user: ProvisionedUser, path: FolderPath)
+
+    /** Renames [from] to [to], including its subfolders. */
+    fun renameFolder(user: ProvisionedUser, from: FolderPath, to: FolderPath)
+}
+
 /** Reads a user's server-side state over IMAP, independently of the app under test, for assertions. */
 interface ServerStateReader {
     fun read(user: ProvisionedUser): ServerState
@@ -67,9 +99,14 @@ data class ServerState(val folders: List<ServerFolderState>) {
         folders.firstOrNull { it.path == path } ?: error("No folder $path on server; have ${folders.map { it.path }}")
 }
 
+/**
+ * One folder as the server has it. [uidValidity] is the folder's UIDVALIDITY; it changes when the folder is deleted and
+ * created again, which tells clients that UIDs they remember are no longer valid. Null if the server didn't report it.
+ */
 data class ServerFolderState(
     val path: FolderPath,
     val messages: List<ServerMessageState>,
+    val uidValidity: Long? = null,
 ) {
     fun message(subject: String): ServerMessageState =
         messages.singleOrNull { it.subject == subject }
