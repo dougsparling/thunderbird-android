@@ -3,6 +3,9 @@ package net.thunderbird.android.scenario
 import assertk.assertThat
 import assertk.assertions.contains
 import assertk.assertions.hasSize
+import assertk.assertions.isNotNull
+import assertk.assertions.matches
+import assertk.assertions.single
 import kotlin.test.Test
 import net.thunderbird.android.scenario.harness.ClientMessage
 import net.thunderbird.android.scenario.harness.ScenarioTest
@@ -15,8 +18,9 @@ import net.thunderbird.mail.testserver.fixture.FolderPath
  * well-formed messages. Pulling to refresh must list every message with its subject, so one malformed message never
  * hides the rest of the mailbox.
  *
- * The 8-bit message's decoded subject depends on the app's charset guessing, which isn't deterministic, so the test
- * only requires that it is listed (one subject outside the known ASCII ones); the other subjects are compared exactly.
+ * Undeclared 8-bit header bytes have no defined charset. Today the app shows the Latin-1 subject's accented letters as
+ * replacement characters; the test only requires that the ASCII letters around them survive, so a better guess also
+ * passes. The other subjects are compared exactly.
  */
 class MalformedMessagesScenarioTest : ScenarioTest() {
 
@@ -51,8 +55,8 @@ class MalformedMessagesScenarioTest : ScenarioTest() {
         // All eight messages are listed, each with a subject.
         assertThat(subjects).hasSize(8)
         KNOWN_SUBJECTS.forEach { subject -> assertThat(subjects).contains(subject) }
-        // Exactly one listed message is the 8-bit one; the rest are the known ASCII subjects.
-        assertThat(subjects.filterNot { it in KNOWN_SUBJECTS }).hasSize(1)
+        // The one other listed message is the 8-bit one, with its ASCII letters intact.
+        assertThat(subjects.filterNot { it in KNOWN_SUBJECTS }).single().isNotNull().matches(EIGHT_BIT_SUBJECT_SHOWN)
     }
 
     /** A multipart header whose declared boundary doesn't match the one used in the body. */
@@ -153,6 +157,9 @@ class MalformedMessagesScenarioTest : ScenarioTest() {
 
         // The raw, unencoded Latin-1 subject that goes on the wire for the 8-bit message.
         const val EIGHT_BIT_SUBJECT = "R\u00e9sum\u00e9 caf\u00e9 na\u00efve"
+
+        // How the app may show it: each accented letter as one character of its choice.
+        val EIGHT_BIT_SUBJECT_SHOWN = Regex("R.sum. caf. na.ve")
 
         val KNOWN_SUBJECTS = listOf(
             BROKEN_BOUNDARY_SUBJECT,

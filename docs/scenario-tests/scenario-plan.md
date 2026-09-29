@@ -38,7 +38,7 @@ A8  ReadThenArchiveOrderScenarioTest — #6581: mark read then archive with STOR
     server Archive has A \Seen; transcript shows STORE before MOVE.
 A9 [CHECK]  MoveMessageDeletedByOtherClientScenarioTest — offline archive A; server expunges A; online; refresh INBOX &
     Archive: A nowhere, no ghost, no crash.
-A10 OfflineChangesAppliedInOrderScenarioTest — offline: mark A read, star B, delete C, move D to Work; online,
+A10 OfflineChangesAllReachServerScenarioTest — offline: mark A read, star B, delete C, move D to Work; online,
     refresh: server reflects all four; app matches server.
 
 ## Group B — delete / trash / server-side changes

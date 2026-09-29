@@ -4,7 +4,6 @@ import assertk.assertThat
 import assertk.assertions.contains
 import assertk.assertions.containsExactly
 import kotlin.test.Test
-import kotlin.time.Duration.Companion.minutes
 import net.thunderbird.android.scenario.harness.ClientAccount
 import net.thunderbird.android.scenario.harness.ClientMessage
 import net.thunderbird.android.scenario.harness.ScenarioScope
@@ -50,9 +49,8 @@ class PushAcrossOfflineScenarioTest : ScenarioTest() {
 
         goOnline()
 
-        // Push retries on its own once the network returns; advance time for the retry and the re-sync it triggers.
+        // Push reconnects as soon as the network returns, without waiting for a retry timer: no time passes.
         eventually {
-            device.advanceTime(5.minutes)
             assertThat(inboxSubjects(account)).containsExactly(SECOND_SUBJECT, FIRST_SUBJECT)
         }
         awaitAppListening()

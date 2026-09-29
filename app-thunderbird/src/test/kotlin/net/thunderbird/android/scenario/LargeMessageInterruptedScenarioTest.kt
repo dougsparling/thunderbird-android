@@ -3,6 +3,7 @@ package net.thunderbird.android.scenario
 import assertk.assertThat
 import assertk.assertions.contains
 import assertk.assertions.containsExactlyInAnyOrder
+import assertk.assertions.isTrue
 import kotlin.test.Test
 import net.thunderbird.android.scenario.harness.ClientMessage
 import net.thunderbird.android.scenario.harness.ScenarioTest
@@ -65,6 +66,12 @@ class LargeMessageInterruptedScenarioTest : ScenarioTest() {
         )
         assertThat(driver.messageList(account, FolderPath.INBOX).map(ClientMessage::subject))
             .containsExactlyInAnyOrder(LARGE_SUBJECT, SMALL_SUBJECT_1, SMALL_SUBJECT_2, SMALL_SUBJECT_3)
+
+        // Being listed only needs the headers. The large body download must also be picked up again after the drop:
+        // the server sends the app a large body (whole or partial, as the download limit decides) after it.
+        val afterDrop = proxy.transcript().substringAfter("!! disconnect (rule: afterBytes")
+        val bodySizes = BODY_LITERAL.findAll(afterDrop).map { it.groupValues[1].toLong() }.toList()
+        assertThat(bodySizes.any { it >= MIN_LARGE_BODY_BYTES }).isTrue()
     }
 
     private companion object {
@@ -78,5 +85,11 @@ class LargeMessageInterruptedScenarioTest : ScenarioTest() {
         // when the 128 KB mark is crossed.
         const val LARGE_BODY_CHARS = 400_000
         const val INTERRUPT_AFTER_BYTES = 128L * 1024
+
+        // Far more than a small message's body, far less than any download limit the app offers.
+        const val MIN_LARGE_BODY_BYTES = 32L * 1024
+
+        // A server FETCH response carrying a message body (or part of one) as an IMAP literal of {n} bytes.
+        val BODY_LITERAL = Regex("""S: \* \d+ FETCH \(.*(?:BODY|BINARY)\[[^\]]*](?:<\d+>)? \{(\d+)}""")
     }
 }

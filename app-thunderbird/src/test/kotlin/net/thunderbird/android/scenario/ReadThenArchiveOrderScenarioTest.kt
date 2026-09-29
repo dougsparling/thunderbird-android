@@ -58,9 +58,12 @@ class ReadThenArchiveOrderScenarioTest : ScenarioTest() {
         assertThat(driver.messageList(account, FolderPath.INBOX)).isEmpty()
         assertThat(driver.messageList(account, ARCHIVE)).single().prop(ClientMessage::isRead).isTrue()
 
-        // The read mark goes to the server before the message is moved (or copied) to Archive.
-        val store = transcript.indexOf("UID STORE")
-        val move = listOf("UID MOVE", "UID COPY").map { transcript.indexOf(it) }.filter { it >= 0 }.minOrNull() ?: -1
+        // The end state alone can't show the read mark survived: archiving marks the message read too. So check the
+        // order: after the connection dropped, the app sends the read mark again before it moves (or copies) the
+        // message to Archive. Archiving's own read mark goes to Archive after the move and doesn't count.
+        val afterDrop = transcript.substringAfter("!! disconnect (rule: onCommand UID STORE afterServerResponds)")
+        val store = afterDrop.indexOf("UID STORE")
+        val move = listOf("UID MOVE", "UID COPY").map { afterDrop.indexOf(it) }.filter { it >= 0 }.minOrNull() ?: -1
         assertThat(store).isNotEqualTo(-1)
         assertThat(move).isNotEqualTo(-1)
         assertThat(move).isGreaterThan(store)

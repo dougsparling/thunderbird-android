@@ -45,6 +45,11 @@ class ServerSideFlagChangesScenarioTest : ScenarioTest() {
         }
         val account = client.account(user)
 
+        // Guards against a vacuous pass: account setup synced INBOX, so the app starts from the old flags.
+        assertThat(message(account, UNREAD_SUBJECT)).prop(ClientMessage::isRead).isFalse()
+        assertThat(message(account, UNSTARRED_SUBJECT)).prop(ClientMessage::isStarred).isFalse()
+        assertThat(message(account, READ_SUBJECT)).prop(ClientMessage::isRead).isTrue()
+
         // Another client changes the flags on the server, not through this app.
         server.setFlags(user, FolderPath.INBOX, UNREAD_SUBJECT, add = setOf(SystemFlag.SEEN))
         server.setFlags(user, FolderPath.INBOX, UNSTARRED_SUBJECT, add = setOf(SystemFlag.FLAGGED))

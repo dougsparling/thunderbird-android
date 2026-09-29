@@ -4,6 +4,7 @@ import assertk.assertThat
 import assertk.assertions.contains
 import assertk.assertions.containsExactly
 import kotlin.test.Test
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import net.thunderbird.android.scenario.harness.ClientAccount
 import net.thunderbird.android.scenario.harness.ClientMessage
@@ -48,9 +49,14 @@ class PushResumesAfterDisconnectScenarioTest : ScenarioTest() {
             }
         }
 
-        // Push retries after an I/O error; advance enough time for the retry to fire and the re-sync it triggers.
+        // Push retries 5 minutes after an I/O error. Time passes a minute at a time, and at most MAX_WAIT: well short
+        // of the 30-minute IDLE refresh, so only the retry can bring the mail in.
+        var waited = Duration.ZERO
         eventually {
-            device.advanceTime(5.minutes)
+            if (waited < MAX_WAIT) {
+                device.advanceTime(1.minutes)
+                waited += 1.minutes
+            }
             assertThat(inboxSubjects(account)).containsExactly(SECOND_SUBJECT, FIRST_SUBJECT)
         }
         awaitAppListening()
@@ -65,5 +71,8 @@ class PushResumesAfterDisconnectScenarioTest : ScenarioTest() {
         const val SENDER = "erin@example.org"
         const val FIRST_SUBJECT = "Already there"
         const val SECOND_SUBJECT = "Delivered while disconnected"
+
+        // Twice the retry delay, in case the app only notices the dropped connection after time started passing.
+        val MAX_WAIT = 10.minutes
     }
 }

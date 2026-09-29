@@ -18,8 +18,11 @@ import net.thunderbird.mail.testserver.fixture.SystemFlag
  * While offline the user makes four changes in INBOX: marks A read, stars B, deletes C and moves D to Work. Once the
  * app is back online and the folders have been refreshed, all four changes must have reached the server (A read, B
  * starred, C in Trash but not INBOX, D in Work but not INBOX) and the lists the user sees must match it.
+ *
+ * The order in which the app sends the changes isn't asserted: they touch different messages, so any order gives the
+ * user the same result. [ReadThenArchiveOrderScenarioTest] covers two changes to one message, where order matters.
  */
-class OfflineChangesAppliedInOrderScenarioTest : ScenarioTest() {
+class OfflineChangesAllReachServerScenarioTest : ScenarioTest() {
 
     @Test
     fun `changes made offline all reach the server and the lists match it`() = scenario {

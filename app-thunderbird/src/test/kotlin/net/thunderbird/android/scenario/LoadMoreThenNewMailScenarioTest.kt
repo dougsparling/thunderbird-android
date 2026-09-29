@@ -1,6 +1,7 @@
 package net.thunderbird.android.scenario
 
 import assertk.assertThat
+import assertk.assertions.containsExactlyInAnyOrder
 import assertk.assertions.hasSize
 import kotlin.test.Test
 import net.thunderbird.android.scenario.harness.ScenarioTest
@@ -51,7 +52,9 @@ class LoadMoreThenNewMailScenarioTest : ScenarioTest() {
 
         // Refreshing picks up the new mail and still shows everything the user loaded before.
         driver.pullToRefresh(account, FolderPath.INBOX)
-        assertThat(driver.messageList(account, FolderPath.INBOX)).hasSize(MESSAGE_COUNT + NEW_MESSAGE_COUNT)
+        assertThat(driver.messageList(account, FolderPath.INBOX).map { it.subject }).containsExactlyInAnyOrder(
+            *(oldSubjects + newSubjects).toTypedArray(),
+        )
     }
 
     private companion object {
@@ -59,5 +62,8 @@ class LoadMoreThenNewMailScenarioTest : ScenarioTest() {
         const val MESSAGE_COUNT = 30
         const val NEW_MESSAGE_COUNT = 5
         const val SENDER = "bob@example.org"
+
+        val oldSubjects = (1..MESSAGE_COUNT).map { "Message $it" }
+        val newSubjects = (1..NEW_MESSAGE_COUNT).map { "New message $it" }
     }
 }
