@@ -285,6 +285,7 @@ dependencies {
     testImplementation(projects.feature.account.setup)
     testImplementation(projects.mail.protocols.imap)
     testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.work.testing)
     jamesServer(libs.james.server.memory.app)
 }
 

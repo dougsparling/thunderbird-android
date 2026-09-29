@@ -1,14 +1,13 @@
 package net.thunderbird.android.scenario.harness
 
-import net.thunderbird.android.ThunderbirdApp
 import org.junit.Rule
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Base class for scenario tests: the real app (its [ThunderbirdApp] and complete Koin graph, under Robolectric)
- * against a real IMAP server.
+ * Base class for scenario tests: the real app (its complete Koin graph and startup, under Robolectric, see
+ * [ScenarioApplication]) against a real IMAP server.
  *
  * A scenario describes behaviour from the outside, so it survives rewrites of the sync code and a change of test
  * server: server state goes in through the fixture DSL, the user's actions go through [ScenarioDriver], and the
@@ -36,7 +35,7 @@ import org.robolectric.annotation.Config
  * Studio. Gradle starts the test mail server as needed.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(application = ThunderbirdApp::class, sdk = [ScenarioTest.ROBOLECTRIC_SDK])
+@Config(application = ScenarioApplication::class, sdk = [ScenarioTest.ROBOLECTRIC_SDK])
 abstract class ScenarioTest {
     @get:Rule
     val scenarioRule = ScenarioRule()

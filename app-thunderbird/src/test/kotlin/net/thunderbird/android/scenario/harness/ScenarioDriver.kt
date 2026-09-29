@@ -19,6 +19,12 @@ interface ScenarioDriver : AutoCloseable {
     /** The user pulls to refresh while looking at [folder] in the message list. */
     fun pullToRefresh(account: ClientAccount, folder: FolderPath)
 
+    /**
+     * The system runs every scheduled periodic mail sync, as it would once the check interval has passed and the
+     * device is online. Fails if no account has periodic sync scheduled.
+     */
+    fun periodicSyncDue()
+
     /** Marks the single message with [subject] in [folder] as read, like a user does from the message list. */
     fun markRead(account: ClientAccount, folder: FolderPath, subject: String)
 
@@ -29,13 +35,17 @@ interface ScenarioDriver : AutoCloseable {
     fun messageList(account: ClientAccount, folder: FolderPath): List<ClientMessage>
 }
 
-/** Plaintext IMAP account settings. SMTP is not used by scenarios. */
+/**
+ * Plaintext IMAP account settings. SMTP is not used by scenarios. [checkIntervalMinutes] null means the account never
+ * syncs in the background.
+ */
 data class AccountSpec(
     val email: String,
     val imapHost: String,
     val imapPort: Int,
     val username: String,
     val password: String,
+    val checkIntervalMinutes: Int? = null,
 ) {
     override fun toString() = "AccountSpec(email=$email, imap=$imapHost:$imapPort, username=$username)"
 }

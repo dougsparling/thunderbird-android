@@ -35,9 +35,14 @@ class ScenarioClient internal constructor(
 ) {
     /**
      * Adds an account for [user] to the app, connecting through the fault proxy. Pass a different [password] to set
-     * the account up with wrong credentials.
+     * the account up with wrong credentials, and [checkIntervalMinutes] to have the app schedule periodic mail sync
+     * (see [ScenarioDriver.periodicSyncDue]); without it the account never syncs in the background.
      */
-    fun account(user: ProvisionedUser, password: String = user.password): ClientAccount {
+    fun account(
+        user: ProvisionedUser,
+        password: String = user.password,
+        checkIntervalMinutes: Int? = null,
+    ): ClientAccount {
         return driverProvider().addAccount(
             AccountSpec(
                 email = user.username,
@@ -45,6 +50,7 @@ class ScenarioClient internal constructor(
                 imapPort = proxyProvider().port,
                 username = user.username,
                 password = password,
+                checkIntervalMinutes = checkIntervalMinutes,
             ),
         )
     }

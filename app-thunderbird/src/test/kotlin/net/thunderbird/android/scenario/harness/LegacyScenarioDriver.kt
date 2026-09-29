@@ -1,5 +1,12 @@
 package net.thunderbird.android.scenario.harness
 
+import android.content.Context
+import androidx.work.Configuration
+import androidx.work.WorkManager
+import androidx.work.WorkerFactory
+import androidx.work.testing.SynchronousExecutor
+import androidx.work.testing.TestDriver
+import androidx.work.testing.WorkManagerTestInitHelper
 import app.k9mail.feature.account.common.domain.entity.Account
 import app.k9mail.feature.account.common.domain.entity.AccountOptions
 import app.k9mail.feature.account.setup.AccountSetupExternalContract.AccountCreator
@@ -10,6 +17,7 @@ import app.k9mail.legacy.ui.folder.DisplayFolderRepository
 import com.fsck.k9.Preferences
 import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.controller.MessagingControllerWrapper
+import com.fsck.k9.job.MailSyncWorkerManager
 import com.fsck.k9.mail.AuthType
 import com.fsck.k9.mail.ConnectionSecurity
 import com.fsck.k9.mail.ServerSettings
@@ -40,6 +48,9 @@ import org.koin.core.Koin
  * - the folder list comes from [DisplayFolderRepository], like the folder drawer,
  * - the message list comes from [MessageListLoader], like the message list screen (unthreaded, by date).
  *
+ * System events go through the platform: [periodicSyncDue] runs the app's scheduled WorkManager jobs through
+ * WorkManager's test driver, so it keeps working when the sync core behind those jobs changes.
+ *
  * After every action the driver waits until the controller has run all follow-up work, see
  * [MessagingControllerQueue].
  */
@@ -59,6 +70,11 @@ internal class LegacyScenarioDriver(
 
     private val pump = MainLooperPump(timeout)
     private val controllerQueue = MessagingControllerQueue(messagingController)
+
+    private val context: Context = koin.get()
+    private val clock: ScenarioClock = koin.get()
+    private val workManager: WorkManager = installTestWorkManager(koin)
+    private val workTestDriver: TestDriver = checkNotNull(WorkManagerTestInitHelper.getTestDriver(context))
 
     override fun addAccount(spec: AccountSpec): ClientAccount {
         val account = Account(
@@ -97,9 +113,10 @@ internal class LegacyScenarioDriver(
                 accountName = spec.email,
                 displayName = "Scenario User",
                 emailSignature = null,
-                // No periodic sync, so WorkManager never syncs behind the scenario's back. With this setting the app
-                // runs one mail check right after setup; addAccount waits for it.
-                checkFrequencyInMinutes = LegacyAccountDto.INTERVAL_MINUTES_NEVER,
+                // Without an interval there's no periodic sync and the app runs one mail check right after setup
+                // instead; addAccount waits for it. With an interval, the app schedules a periodic WorkManager job
+                // that only runs when the scenario calls periodicSyncDue().
+                checkFrequencyInMinutes = spec.checkIntervalMinutes ?: LegacyAccountDto.INTERVAL_MINUTES_NEVER,
                 messageDisplayCount = MESSAGE_DISPLAY_COUNT,
                 showNotification = false,
             ),
@@ -121,6 +138,34 @@ internal class LegacyScenarioDriver(
         // Same calls as LegacyMessageListFragment.checkMail() when it shows a single folder of a single account.
         messagingControllerWrapper.synchronizeMailbox(accountDto.id, folderId, false, uiListener)
         messagingControllerWrapper.sendPendingMessages(accountDto.id, uiListener)
+        awaitIdle()
+    }
+
+    override fun periodicSyncDue() {
+        val scheduled = workManager.getWorkInfosByTag(MailSyncWorkerManager.MAIL_SYNC_TAG).get()
+            .filterNot { it.state.isFinished }
+        check(scheduled.isNotEmpty()) {
+            "No periodic mail sync is scheduled. Add the account with client.account(user, checkIntervalMinutes = ...)."
+        }
+
+        // "Due" means the check interval has passed; the app skips folders it checked more recently than that.
+        val longestInterval = preferences.getAccounts()
+            .map { it.automaticCheckIntervalMinutes }
+            .filter { it > 0 }
+            .max()
+        clock.advanceBy(longestInterval.minutes)
+
+        // The work runs synchronously inside the test driver calls (SynchronousExecutor), so run them off the main
+        // thread while the main looper keeps being serviced.
+        pump.runInBackground("periodic mail sync") {
+            scheduled.forEach { work ->
+                // The work runs once all of these are met. Constraints come last because WorkManager's test scheduler
+                // resets them after every run, so each call runs the job exactly once.
+                workTestDriver.setInitialDelayMet(work.id)
+                workTestDriver.setPeriodDelayMet(work.id)
+                workTestDriver.setAllConstraintsMet(work.id)
+            }
+        }
         awaitIdle()
     }
 
@@ -202,6 +247,24 @@ internal class LegacyScenarioDriver(
 
     private fun accountDto(account: ClientAccount): LegacyAccountDto {
         return preferences.getAccount(account.id) ?: error("Account ${account.email} not found in the app")
+    }
+
+    /**
+     * Replaces WorkManager with its test implementation, which runs work only when the test driver says its delay and
+     * constraints are met. Must happen before the app first asks Koin for its WorkManager, which caches the instance.
+     */
+    private fun installTestWorkManager(koin: Koin): WorkManager {
+        val configuration = Configuration.Builder()
+            .setWorkerFactory(koin.get<WorkerFactory>())
+            .setExecutor(SynchronousExecutor())
+            .build()
+        WorkManagerTestInitHelper.initializeTestWorkManager(context, configuration)
+
+        val testWorkManager = WorkManager.getInstance(context)
+        check(koin.get<WorkManager>() === testWorkManager) {
+            "The app obtained WorkManager before the scenario driver could replace it with the test implementation"
+        }
+        return testWorkManager
     }
 
     private fun awaitIdle() {
