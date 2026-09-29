@@ -26,6 +26,9 @@ interface ScenarioScope {
     /** Drives the app and reads what the user sees. */
     val driver: ScenarioDriver
 
+    /** The Android device the app runs on: permissions, time, background work, notifications. */
+    val device: ScenarioDevice
+
     /** The fault proxy between the app and the server. Its transcript is printed when the scenario fails. */
     val proxy: FaultProxy
 
@@ -52,17 +55,19 @@ interface ScenarioScope {
 class ScenarioClient internal constructor(
     private val driverProvider: () -> ScenarioDriver,
     private val proxyProvider: () -> FaultProxy,
+    private val onFirstAccount: () -> Unit,
 ) {
     /**
      * Adds an account for [user] to the app, connecting through the fault proxy. Pass a different [password] to set
      * the account up with wrong credentials, and [checkIntervalMinutes] to have the app schedule periodic mail sync
-     * (see [ScenarioDriver.periodicSyncDue]); without it the account never syncs in the background.
+     * (it runs as [ScenarioDevice.advanceTime] lets time pass); without it the account never syncs in the background.
      */
     fun account(
         user: ProvisionedUser,
         password: String = user.password,
         checkIntervalMinutes: Int? = null,
     ): ClientAccount {
+        onFirstAccount()
         return driverProvider().addAccount(
             AccountSpec(
                 email = user.username,
@@ -120,12 +125,23 @@ class ScenarioRule : TestRule {
 
         private val serverDelegate = lazy { ScenarioServer(config, nameHint) }
         private val proxyDelegate = lazy { FaultProxy.start(config.imapHost, config.imapPort) }
-        private val driverDelegate = lazy { LegacyScenarioDriver(GlobalContext.get()) }
+
+        // The device replaces platform parts (WorkManager) the app caches, so it's set up before the app is used.
+        private val deviceDelegate = lazy { ScenarioDevice(GlobalContext.get(), awaitAppIdle = { driver.awaitIdle() }) }
+        private val driverDelegate = lazy {
+            deviceDelegate.value
+            LegacyScenarioDriver(GlobalContext.get())
+        }
 
         override val server: ScenarioServer by serverDelegate
         override val proxy: FaultProxy by proxyDelegate
         override val driver: ScenarioDriver by driverDelegate
-        override val client = ScenarioClient(driverProvider = { driver }, proxyProvider = { proxy })
+        override val device: ScenarioDevice by deviceDelegate
+        override val client = ScenarioClient(
+            driverProvider = { driver },
+            proxyProvider = { proxy },
+            onFirstAccount = { device.markAppInUse() },
+        )
 
         override fun network(block: NetworkRulesBuilder.() -> Unit) {
             proxy.apply(networkRules(block))
@@ -145,7 +161,7 @@ class ScenarioRule : TestRule {
                     return
                 } catch (e: AssertionError) {
                     if (deadline.hasPassedNow()) throw e
-                    driver.awaitIdle()
+                    device.settle()
                     Thread.sleep(POLL_INTERVAL.inWholeMilliseconds)
                 }
             }
@@ -155,7 +171,7 @@ class ScenarioRule : TestRule {
             val deadline = TimeSource.Monotonic.markNow() + timeout
             while (!condition()) {
                 check(!deadline.hasPassedNow()) { "Timed out after $timeout waiting for $what" }
-                driver.awaitIdle()
+                device.settle()
                 Thread.sleep(POLL_INTERVAL.inWholeMilliseconds)
             }
         }
@@ -182,6 +198,7 @@ class ScenarioRule : TestRule {
             }
 
             if (driverDelegate.isInitialized()) attempt { driver.close() }
+            if (deviceDelegate.isInitialized()) attempt { device.close() }
             if (proxyDelegate.isInitialized()) attempt { proxy.close() }
             if (serverDelegate.isInitialized()) {
                 // Leftover users only cost memory on the test server, so failing to delete them doesn't fail the test.

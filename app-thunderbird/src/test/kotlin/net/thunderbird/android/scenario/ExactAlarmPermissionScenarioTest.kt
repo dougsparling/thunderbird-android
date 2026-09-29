@@ -22,7 +22,7 @@ class ExactAlarmPermissionScenarioTest : ScenarioTest() {
 
     @Test
     fun `push asks for the exact alarm permission and starts once it is granted`() = scenario {
-        driver.setPermission(AppPermission.EXACT_ALARMS, granted = false)
+        device.setPermission(AppPermission.EXACT_ALARMS, granted = false)
         val user = server.user {
             inbox()
         }
@@ -31,7 +31,7 @@ class ExactAlarmPermissionScenarioTest : ScenarioTest() {
         driver.enablePush(account, FolderPath.INBOX)
 
         eventually {
-            assertThat(driver.notifications()).any { notification ->
+            assertThat(device.notifications()).any { notification ->
                 notification.all {
                     prop(ClientNotification::tapAction).isEqualTo(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
                     prop(ClientNotification::isOngoing).isTrue()
@@ -40,11 +40,11 @@ class ExactAlarmPermissionScenarioTest : ScenarioTest() {
         }
         assertThat(isIdling(proxy.transcript())).isFalse()
 
-        driver.setPermission(AppPermission.EXACT_ALARMS, granted = true)
+        device.setPermission(AppPermission.EXACT_ALARMS, granted = true)
         awaitAppListening()
 
         eventually {
-            assertThat(driver.notifications()).none { notification ->
+            assertThat(device.notifications()).none { notification ->
                 notification.prop(ClientNotification::tapAction).isEqualTo(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
             }
         }

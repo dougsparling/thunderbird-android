@@ -2,16 +2,18 @@ package net.thunderbird.android.scenario
 
 import assertk.assertThat
 import assertk.assertions.containsExactly
-import assertk.assertions.isEmpty
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.minutes
+import net.thunderbird.android.scenario.harness.ClientAccount
 import net.thunderbird.android.scenario.harness.ClientMessage
+import net.thunderbird.android.scenario.harness.ScenarioScope
 import net.thunderbird.android.scenario.harness.ScenarioTest
 import net.thunderbird.mail.testserver.fixture.FolderPath
 
 class PeriodicSyncScenarioTest : ScenarioTest() {
 
     @Test
-    fun `periodic sync picks up mail that arrived since the last run`() = scenario {
+    fun `periodic sync fetches new mail once the check interval has passed`() = scenario {
         val user = server.user {
             inbox {
                 message {
@@ -23,12 +25,9 @@ class PeriodicSyncScenarioTest : ScenarioTest() {
         }
         val account = client.account(user, checkIntervalMinutes = CHECK_INTERVAL_MINUTES)
 
-        // With a check interval the app doesn't sync right after setup; it waits for the periodic job.
-        assertThat(driver.messageList(account, FolderPath.INBOX)).isEmpty()
-
-        driver.periodicSyncDue()
-
-        assertThat(driver.messageList(account, FolderPath.INBOX).map { it.subject }).containsExactly(FIRST_SUBJECT)
+        // The first periodic sync is due right after setup.
+        device.advanceTime(1.minutes)
+        assertThat(inboxSubjects(account)).containsExactly(FIRST_SUBJECT)
 
         server.deliver(user) {
             inbox {
@@ -39,13 +38,18 @@ class PeriodicSyncScenarioTest : ScenarioTest() {
                 }
             }
         }
-        driver.periodicSyncDue()
 
-        assertThat(driver.messageList(account, FolderPath.INBOX).map(ClientMessage::subject)).containsExactly(
-            SECOND_SUBJECT,
-            FIRST_SUBJECT,
-        )
+        device.advanceTime(5.minutes)
+        assertThat(inboxSubjects(account)).containsExactly(FIRST_SUBJECT)
+
+        device.advanceTime(10.minutes)
+        assertThat(inboxSubjects(account)).containsExactly(SECOND_SUBJECT, FIRST_SUBJECT)
     }
+
+    private fun ScenarioScope.inboxSubjects(account: ClientAccount): List<String?> = driver.messageList(
+        account,
+        FolderPath.INBOX,
+    ).map(ClientMessage::subject)
 
     private companion object {
         const val CHECK_INTERVAL_MINUTES = 15

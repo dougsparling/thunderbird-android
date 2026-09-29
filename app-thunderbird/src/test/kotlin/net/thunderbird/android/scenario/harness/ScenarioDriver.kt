@@ -9,8 +9,9 @@ import net.thunderbird.mail.testserver.fixture.FolderPath
  * replaced: a new implementation drives the new code, the scenarios stay the same. Every action returns once the app
  * has finished the work it started, so scenarios never need to wait or poll.
  *
- * Actions are named after what starts them (the user, or later the system: periodic sync, push, connectivity), never
- * after how the app does the work, so any sync core can implement them.
+ * Actions are named after what the user does, never after how the app does the work, so any sync core can implement
+ * them. What the Android platform does (permissions, time passing, background work, notifications) is the same for
+ * any implementation and lives in [ScenarioDevice] instead.
  */
 interface ScenarioDriver : AutoCloseable {
     /** Sets up an IMAP account the way account setup does, including whatever the app does right after setup. */
@@ -20,29 +21,14 @@ interface ScenarioDriver : AutoCloseable {
     fun pullToRefresh(account: ClientAccount, folder: FolderPath)
 
     /**
-     * The system runs every scheduled periodic mail sync, as it would once the check interval has passed and the
-     * device is online. Fails if no account has periodic sync scheduled.
-     */
-    fun periodicSyncDue()
-
-    /**
      * The user turns on push for [folder] in its folder settings while the app is open. The app then keeps a
      * connection open to be told about new mail; [ScenarioScope.awaitAppListening] waits until it is.
      */
     fun enablePush(account: ClientAccount, folder: FolderPath)
 
     /**
-     * The user grants or denies [permission]. Granting works at any time; denying only before the scenario's first
-     * action, because on a device revoking a permission restarts the app.
-     */
-    fun setPermission(permission: AppPermission, granted: Boolean)
-
-    /** The notifications the user currently sees. */
-    fun notifications(): List<ClientNotification>
-
-    /**
-     * Waits until the app has finished all work it has started so far. Actions already do this before returning; use
-     * it (through [ScenarioScope.eventually]) when the server started something, e.g. by pushing new mail.
+     * Waits until the app has finished all work it has started so far. Actions already do this before returning;
+     * [ScenarioDevice.settle] uses it to let the app and the device run until both are done.
      */
     fun awaitIdle()
 
@@ -58,7 +44,8 @@ interface ScenarioDriver : AutoCloseable {
 
 /**
  * Plaintext IMAP account settings. SMTP is not used by scenarios. [checkIntervalMinutes] null means the account never
- * syncs in the background.
+ * syncs in the background; otherwise the app schedules periodic sync, which runs as [ScenarioDevice.advanceTime] lets
+ * time pass.
  */
 data class AccountSpec(
     val email: String,
@@ -78,27 +65,6 @@ data class ClientFolder(
     val path: FolderPath,
     val unreadCount: Int,
     val isLocalOnly: Boolean,
-)
-
-/**
- * Permissions the user controls. Scenarios start as on a device after onboarding: [NOTIFICATIONS] and [EXACT_ALARMS]
- * granted, [CONTACTS] and [CAMERA] not.
- */
-enum class AppPermission {
-    NOTIFICATIONS,
-    CONTACTS,
-    CAMERA,
-
-    /** Special access ("Alarms & reminders"), needed to keep push connections alive. */
-    EXACT_ALARMS,
-}
-
-/** A notification as the user sees it. [tapAction] is the intent action a tap starts, if any. */
-data class ClientNotification(
-    val title: String?,
-    val text: String?,
-    val tapAction: String?,
-    val isOngoing: Boolean,
 )
 
 data class ClientMessage(
