@@ -81,6 +81,7 @@ import com.fsck.k9.mailstore.SpecialLocalFoldersCreator;
 import com.fsck.k9.notification.NotificationController;
 import com.fsck.k9.notification.NotificationStrategy;
 import kotlinx.coroutines.Dispatchers;
+import kotlin.time.Clock;
 import net.thunderbird.core.android.account.DeletePolicy;
 import net.thunderbird.core.android.account.LegacyAccountDto;
 import net.thunderbird.core.common.exception.MessagingException;
@@ -147,6 +148,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
     private final FeatureFlagProvider featureFlagProvider;
     private final Logger syncDebugLogger;
     private final OutboxFolderManager outboxFolderManager;
+    private final Clock clock;
     private final NotificationSenderCompat notificationSender;
     private final NotificationDismisserCompat notificationDismisser;
 
@@ -174,7 +176,8 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
         FeatureFlagProvider featureFlagProvider,
         Logger syncDebugLogger,
         NotificationManager notificationManager,
-        OutboxFolderManager outboxFolderManager
+        OutboxFolderManager outboxFolderManager,
+        Clock clock
     ) {
         this.context = context;
         this.notificationController = notificationController;
@@ -192,6 +195,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
         this.notificationSender = new NotificationSenderCompat(notificationManager);
         this.notificationDismisser = new NotificationDismisserCompat(notificationManager);
         this.outboxFolderManager = outboxFolderManager;
+        this.clock = clock;
 
         controllerThread = new Thread(new Runnable() {
             @Override
@@ -2497,7 +2501,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
 
         if (!ignoreLastCheckedTime) {
             long lastCheckedTime = folder.getLastChecked();
-            long now = System.currentTimeMillis();
+            long now = clock.now().toEpochMilliseconds();
 
             if (lastCheckedTime > now) {
                 // The time this folder was last checked lies in the future. We better ignore this and sync now.

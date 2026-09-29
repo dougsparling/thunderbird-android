@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Set;
 
 import android.content.Context;
+import kotlin.time.Clock;
 import net.thunderbird.core.android.account.LegacyAccountDto;
 import net.thunderbird.core.featureflag.FeatureFlagProvider;
 import net.thunderbird.core.featureflag.FeatureFlagResult.Disabled;
@@ -163,7 +164,8 @@ public class MessagingControllerTest extends K9RobolectricTest {
             featureFlagProvider,
             syncLogger,
             notificationManager,
-            fakeOutboxFolderManager
+            fakeOutboxFolderManager,
+            Clock.System.INSTANCE
         );
 
         configureAccount();

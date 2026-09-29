@@ -11,6 +11,8 @@ import com.fsck.k9.mailstore.SaveMessageDataCreator
 import com.fsck.k9.mailstore.SpecialLocalFoldersCreator
 import com.fsck.k9.notification.NotificationController
 import com.fsck.k9.notification.NotificationStrategy
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 import net.thunderbird.core.featureflag.FeatureFlagProvider
 import net.thunderbird.core.logging.Logger
 import net.thunderbird.feature.mail.folder.api.OutboxFolderManager
@@ -23,6 +25,7 @@ import org.koin.dsl.module
 
 val controllerModule = module {
     single {
+        @OptIn(ExperimentalTime::class)
         MessagingController(
             get<Context>(),
             get<NotificationController>(),
@@ -40,6 +43,7 @@ val controllerModule = module {
             get<Logger>(named("syncDebug")),
             get<NotificationManager>(),
             get<OutboxFolderManager>(),
+            get<Clock>(),
         )
     } binds arrayOf(MessagingControllerRegistry::class)
 
