@@ -999,7 +999,7 @@ internal class LegacyScenarioDriver(
     }
 
     override fun folderList(account: ClientAccount): List<ClientFolder> {
-        return displayFolders(accountDto(account)).map { displayFolder ->
+        return displayFolders(accountDto(account), includeHidden = false).map { displayFolder ->
             ClientFolder(
                 path = displayFolder.toFolderPath(),
                 unreadCount = displayFolder.unreadMessageCount,
@@ -1115,10 +1115,11 @@ internal class LegacyScenarioDriver(
         }
     }
 
-    private fun displayFolders(accountDto: LegacyAccountDto): List<DisplayFolder> {
+    /** The folder list the drawer shows; with [includeHidden], also the folders the user has hidden. */
+    private fun displayFolders(accountDto: LegacyAccountDto, includeHidden: Boolean): List<DisplayFolder> {
         return pump.runInBackground("folder list") {
             runBlocking {
-                displayFolderRepository.getDisplayFoldersFlow(accountDto, includeHiddenFolders = false).first()
+                displayFolderRepository.getDisplayFoldersFlow(accountDto, includeHiddenFolders = includeHidden).first()
             }
         }
     }
@@ -1128,8 +1129,9 @@ internal class LegacyScenarioDriver(
         path,
     ).folder.id
 
+    /** Finds a folder the way the user would, e.g. in "Manage folders", where hidden folders are listed too. */
     private fun displayFolder(accountDto: LegacyAccountDto, path: FolderPath): DisplayFolder {
-        val folders = displayFolders(accountDto)
+        val folders = displayFolders(accountDto, includeHidden = true)
         // The server may have a folder with the same name as a local-only one (James has an "Outbox"); the local one
         // is reached through outbox().
         val matches = folders.filter { it.toFolderPath() == path }
