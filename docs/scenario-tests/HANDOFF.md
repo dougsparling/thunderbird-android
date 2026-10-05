@@ -223,8 +223,12 @@ repositories). `./gradlew --offline -PuseChinaMirrors=false :app-thunderbird:tes
 pool, which `awaitIdle` doesn't cover: use `eventually`. Message view text is HTML with a style sheet (the driver
 strips it). The app's own deletes always `UID EXPUNGE`; the expunge setting only affects sync.
 
-**New findings:** see `backlog.md` (lost move response duplicate; pinned Move to Drafts and certificate behaviour;
-E10.3/E10.4 blocked by system clock use). Known flaky under parallel load: `PushScenarioTest` (once).
+**Clock:** with the user's approval, `MessagingController` (folder list refresh, last sync) and `ImapSync` (last
+checked) read the Koin `Clock`, so the scenario clock moves them; POP3 sync still uses the system clock. This
+corrected `PeriodicSyncRetryAfterNetworkFailureScenarioTest` (the retry skips INBOX as checked too recently).
+
+**New findings:** see `backlog.md` (lost move response duplicate; pinned Move to Drafts, certificate and retry
+behaviour). Known flaky under parallel load: `PushScenarioTest` (once). Suite: 105 scenarios, all passing.
 
 **Next:** stacked branch with the switchover (new modules, per the scoping discussion): engine under the controller
 first, then entry points, keeping this suite green at each step, with a second `ScenarioDriver` only if the UI entry
