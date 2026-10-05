@@ -48,8 +48,7 @@ class CodeCoveragePlugin : Plugin<Project> {
             .map { it.equals("true", ignoreCase = true) }
         val disabledProvider = environmentProperty.orElse(gradleProperty).orElse(true)
 
-        extension.disabled.convention(disabledProvider)
-        extension.initialize()
+        extension.initialize(disabledByDefault = disabledProvider)
         extension.finalizeValueOnRead()
 
         with(target) {

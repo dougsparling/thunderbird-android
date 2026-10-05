@@ -1,6 +1,7 @@
 package net.thunderbird.gradle.plugin.quality.coverage
 
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
 
 internal const val DEFAULT_MIN_BRANCH_COVERAGE = 70
 internal const val DEFAULT_MIN_LINE_COVERAGE = 75
@@ -23,8 +24,8 @@ interface CodeCoverageExtension {
     val lineCoverage: Property<Int>
 }
 
-internal fun CodeCoverageExtension.initialize() {
-    disabled.convention(true)
+internal fun CodeCoverageExtension.initialize(disabledByDefault: Provider<Boolean>) {
+    disabled.convention(disabledByDefault)
     branchCoverage.convention(DEFAULT_MIN_BRANCH_COVERAGE)
     lineCoverage.convention(DEFAULT_MIN_LINE_COVERAGE)
 }
