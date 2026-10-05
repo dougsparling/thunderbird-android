@@ -15,7 +15,7 @@ import org.koin.java.KoinJavaComponent.getKoin
  * control. Only [ScenarioClock] is replaced so far.
  *
  * The replacements are loaded after Koin has started (in `attachBaseContext`) and before the app's `onCreate` creates
- * its long-lived objects, such as `MessagingController`, which take them as constructor arguments.
+ * its long-lived objects, such as the mail sync classes, which take them as constructor arguments.
  *
  * Keep in sync with [ThunderbirdApp]. Telemetry initialization is left out; it doesn't affect mail behaviour.
  */

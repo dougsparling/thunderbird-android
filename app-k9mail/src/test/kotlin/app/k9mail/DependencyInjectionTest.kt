@@ -50,6 +50,7 @@ class DependencyInjectionTest {
                 AccountId::class,
                 AppAuthConfiguration::class,
                 Application::class,
+                Boolean::class,
                 AssetManager::class,
                 Configuration::class,
                 Context::class,

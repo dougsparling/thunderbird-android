@@ -6,7 +6,7 @@ val uiFolderModule = module {
     single<DisplayFolderRepository> {
         DefaultDisplayFolderRepository(
             accountManager = get(),
-            messagingController = get(),
+            messageListRepository = get(),
             messageStoreManager = get(),
             outboxFolderManager = get(),
         )

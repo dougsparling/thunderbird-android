@@ -31,6 +31,9 @@ Bug-hunting is explicitly out of scope for now; scenarios that expose bugs go to
 ./gradlew --offline :mail:testserver:fixture:test :mail:testserver:provision:test
 ```
 
+CI: `.github/workflows/test-scenarios.yml` runs the suite on pull requests (and on demand) on a standard GitHub runner,
+in about 17–20 minutes, and uploads the test reports and `james.log`.
+
 Scenario tests are excluded from normal unit test runs; they run with `-PscenarioTests` or when `--tests` names them.
 Gradle starts James automatically (a build service in `build-plugin/.../testserver/`, James memory app 3.9.0 from
 Maven Central, config templates in `mail/testserver/james/conf/`, working dir `build/testserver/james/`, log
@@ -40,15 +43,16 @@ JVM (`forkEvery = 1`), in parallel against the one James; each test gets its own
 
 ## Architecture
 
-| Piece | Where | Role |
-|---|---|---|
-| Fixture DSL | `mail/testserver/fixture` | `userFixture { inbox { message { … } }; folder("A") { folder("B") } }`, deterministic MIME, `raw()`/`eml()` |
-| Provisioning | `mail/testserver/provision/.../provision` | Independent IMAP client, seeder, server state reader, James WebAdmin adapter, `testserver.*` config |
-| Fault proxy | `mail/testserver/provision/.../proxy` | Per-test TCP proxy: readable, credential-redacted transcript (printed on failure), fault rules DSL |
-| Harness | `app-thunderbird/src/test/kotlin/net/thunderbird/android/scenario/harness` | `ScenarioTest`/`ScenarioRule`/`ScenarioScope` |
-| Scenarios | `app-thunderbird/src/test/kotlin/net/thunderbird/android/scenario/*ScenarioTest.kt` | One test method per class |
+|    Piece     |                                        Where                                        |                                                    Role                                                     |
+|--------------|-------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------|
+| Fixture DSL  | `mail/testserver/fixture`                                                           | `userFixture { inbox { message { … } }; folder("A") { folder("B") } }`, deterministic MIME, `raw()`/`eml()` |
+| Provisioning | `mail/testserver/provision/.../provision`                                           | Independent IMAP client, seeder, server state reader, James WebAdmin adapter, `testserver.*` config         |
+| Fault proxy  | `mail/testserver/provision/.../proxy`                                               | Per-test TCP proxy: readable, credential-redacted transcript (printed on failure), fault rules DSL          |
+| Harness      | `app-thunderbird/src/test/kotlin/net/thunderbird/android/scenario/harness`          | `ScenarioTest`/`ScenarioRule`/`ScenarioScope`                                                               |
+| Scenarios    | `app-thunderbird/src/test/kotlin/net/thunderbird/android/scenario/*ScenarioTest.kt` | One test method per class                                                                                   |
 
 A scenario (`scenario { … }`) sees:
+
 - `server`: create/seed users (`server.user { … }`), `deliver`, `stateOf(user)`, and helpers that act as another
   client on the server (being added; see "In flight").
 - `client.account(user, password, checkIntervalMinutes, …)`: adds the account through the app's own account creator.
@@ -90,6 +94,13 @@ A scenario (`scenario { … }`) sees:
   then RST. `stall()` is useless until timeouts are injectable (the app's read timeout is a fixed 60 s).
 - **Offline:** pooled IMAP connections survive rule changes, so "offline" = `refuseConnections()` +
   `proxy.disconnectAll()`.
+- **James races under load** (seen on GitHub's runners, reproducible locally with all cores busy): James 3.9
+  sometimes sends a FETCH's tagged completion before some of its untagged FETCH responses, and its in-memory user
+  store sometimes loses one of two users created at the same moment. The cause of the first is James' response line
+  buffer, flushed from another thread than the literals: the server runs with `-Djames.imap.flush.buffer.size=0`. As
+  a safety net the fault proxy also restores the order of whole FETCH responses (holds a FETCH completion up to 25 ms;
+  the transcript says "forwarded them first" when it did). `createUser` checks the user exists and creates it again
+  if not. Don't remove these while the suite runs on James 3.9.
 - **James:** separator is `.`; James auto-creates Drafts/Outbox/Sent/Spam/Trash for new users; requires a Bcc-removal
   mailet (already in the config); `<plainAuthDisallowed>false` + `<compress>false` in `imapserver.xml`.
 - **Two message lists exist**: the new MVI one (`enable_message_list_new_state`, off by default) seems to only reload
@@ -99,8 +110,10 @@ A scenario (`scenario { … }`) sees:
 
 ## Harness extensions (done, committed)
 
-- **Queue:** `awaitIdle` fails fast with `ControllerThreadDiedException` (with the cause) when the controller thread
-  dies (debug builds throw `AssertionError` for unexpected pending-command exceptions, ~`MessagingController.java:825`).
+- **Queue:** `awaitIdle` waits for the sync engine's idle signal (`RemoteWorkQueue`) and fails fast with
+  `SyncEngineStoppedException` (with the cause) when the engine stops (debug builds throw `AssertionError` for
+  unexpected pending-command exceptions, `PendingCommandReplay`). Before the switchover it reflected into
+  `MessagingController`'s thread and queue.
 - **Driver:** `markUnread`, `setStarred(…, starred)`, `delete`, `archive`, `move(…, to)`, `markAllRead`, `emptyTrash`,
   `loadMore`, `refreshFolders`, `updatePassword`, plus `client.account(…, notifyNewMail = false)`. Each mirrors the UI
   (comments name the UI code) and refuses where the UI would (no archive/trash folder, outbox, no "load more").
@@ -116,6 +129,7 @@ A scenario (`scenario { … }`) sees:
   `folder("Archive", specialUse = SpecialUse.ARCHIVE)` for archive) and enables INBOX notifications.
 
 **Observed behaviour worth knowing when writing scenarios:**
+
 - Pull to refresh never produces new-mail notifications (the UI passes `notify = false`); use push or periodic sync.
 - Delete moves to Trash and marks `\Seen`; archive also marks `\Seen`.
 - Messages flagged `\Deleted` but not expunged on the server are hidden by the app.
@@ -204,6 +218,7 @@ scenarios; everything not blocked is written and committed, scenarios by Claude 
 repositories). `./gradlew --offline -PuseChinaMirrors=false :app-thunderbird:testFossDebugUnitTest -PscenarioTests`.
 
 **Harness added:**
+
 - Test server: James also serves SMTP (AUTH, unknown local recipients get 5xx), POP3, and IMAPS with a self-signed
   certificate generated by keytool (`testserver.smtp`, `.pop3`, `.imaps-untrusted`). Scope has `smtpProxy`,
   `pop3Proxy`, `smtpNetwork { }`; `goOffline()` covers all proxies.

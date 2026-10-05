@@ -1,7 +1,6 @@
 package com.fsck.k9.ui.endtoend
 
 import android.app.PendingIntent
-import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.helper.SingleLiveEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -10,16 +9,17 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.thunderbird.core.android.account.LegacyAccountDto
+import net.thunderbird.feature.mail.sync.api.OutboxSender
 
 class AutocryptSetupTransferLiveEvent(
-    private val messagingController: MessagingController,
+    private val outboxSender: OutboxSender,
     private val eventScope: CoroutineScope = MainScope(),
 ) : SingleLiveEvent<AutocryptSetupTransferResult>() {
 
     fun sendMessageAsync(account: LegacyAccountDto, setupMsg: AutocryptSetupMessage) {
         eventScope.launch {
-            val setupMessage = async(Dispatchers.IO) {
-                messagingController.sendMessageBlocking(account, setupMsg.setupMessage)
+            val setupMessage = async {
+                outboxSender.sendNow(account.id, setupMsg.setupMessage)
             }
 
             delay(2000)

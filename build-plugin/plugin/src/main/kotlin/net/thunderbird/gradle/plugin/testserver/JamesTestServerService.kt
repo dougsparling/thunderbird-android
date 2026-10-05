@@ -155,6 +155,11 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
             "-Dworking.directory=${workDir.absolutePath}",
             "-Dlogback.configurationFile=${File(confDir, "logback.xml").absolutePath}",
             "-Djava.net.preferIPv4Stack=true",
+            // James buffers IMAP response lines (up to 8 KB by default) separately from message literals, which it
+            // writes straight to the connection, and flushes the buffer from another thread. On a busy machine (e.g. a
+            // CI runner) a FETCH's closing parenthesis or tagged OK then reaches the client before or between the
+            // literals. Writing every line right away keeps the response order.
+            "-Djames.imap.flush.buffer.size=0",
             // TODO(verify): James 3.9 on JDK 21 may need extra --add-opens flags; check james.log on first run.
             "@${argFile.absolutePath}",
             MAIN_CLASS,
@@ -398,6 +403,7 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
         const val KEYTOOL_TIMEOUT_SECONDS = 60L
 
         // TODO(verify): the Netty servers and WebAdmin (Jetty) all log this BindException message when the port is taken.
+
         /** Text of the `java.net.BindException` James logs when a port is already taken. */
         const val BIND_FAILURE = "Address already in use"
 

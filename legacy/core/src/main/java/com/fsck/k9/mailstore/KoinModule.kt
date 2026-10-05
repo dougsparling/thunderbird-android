@@ -82,6 +82,7 @@ val legacyMailStoreModule = module {
     factory { SpecialLocalFoldersCreator(preferences = get(), localStoreProvider = get(), outboxFolderManager = get()) }
     single { MessageStoreManager(accountManager = get(), messageStoreFactory = get()) }
     single { MessageRepository(messageStoreManager = get()) }
+    single { LocalMessageReader(localStoreProvider = get()) }
     factory { MessagePreviewCreator.newInstance() }
     factory { MessageFulltextCreator.newInstance() }
     factory { AttachmentCounter.newInstance() }

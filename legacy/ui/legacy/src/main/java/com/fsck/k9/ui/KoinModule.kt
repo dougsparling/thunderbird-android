@@ -3,8 +3,6 @@ package com.fsck.k9.ui
 import android.app.Activity
 import android.content.Context
 import app.k9mail.core.ui.compose.common.window.FoldableStateObserver
-import app.k9mail.legacy.message.controller.MessagingControllerMailChecker
-import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.ui.helper.DisplayHtmlUiFactory
 import com.fsck.k9.ui.helper.SizeFormatter
 import com.fsck.k9.ui.messagelist.LegacyMessageListFragment
@@ -29,7 +27,6 @@ val uiModule = module {
             messageComposerHtmlSettingsProvider = get(),
         )
     }
-    single<MessagingControllerMailChecker> { get<MessagingController>() }
     viewModel { AboutViewModel(appVersionProvider = get()) }
     factory(named("MessageView")) { get<DisplayHtmlUiFactory>().createForMessageView() }
     factory { (context: Context) -> SizeFormatter(context.resources) }

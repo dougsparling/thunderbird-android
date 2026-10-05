@@ -7,10 +7,10 @@ import android.content.res.Resources
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.k9mail.feature.widget.message.list.MessageListWidgetManager
 import app.k9mail.legacy.di.DI
+import app.k9mail.legacy.mailstore.MessageListRepository
 import com.fsck.k9.Core
 import com.fsck.k9.K9
-import com.fsck.k9.MessagingListenerProvider
-import com.fsck.k9.controller.MessagingController
+import com.fsck.k9.MessageListChangedListenerProvider
 import com.fsck.k9.job.WorkManagerConfigurationProvider
 import com.fsck.k9.notification.NotificationChannelManager
 import com.fsck.k9.ui.base.AppLanguageManager
@@ -35,8 +35,8 @@ import androidx.work.Configuration as WorkManagerConfiguration
 
 abstract class BaseApplication : Application(), WorkManagerConfiguration.Provider {
 
-    private val messagingController: MessagingController by inject()
-    private val messagingListenerProvider: MessagingListenerProvider by inject()
+    private val messageListRepository: MessageListRepository by inject()
+    private val messageListChangedListenerProvider: MessageListChangedListenerProvider by inject()
     private val themeManager: ThemeManager by inject()
     private val appLanguageManager: AppLanguageManager by inject()
     private val notificationChannelManager: NotificationChannelManager by inject()
@@ -68,8 +68,8 @@ abstract class BaseApplication : Application(), WorkManagerConfiguration.Provide
         themeManager.init()
         messageListWidgetManager.init()
 
-        messagingListenerProvider.listeners.forEach { listener ->
-            messagingController.addListener(listener)
+        messageListChangedListenerProvider.listeners.forEach { listener ->
+            messageListRepository.addListener(listener)
         }
         val originalHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler(ExceptionHandler(originalHandler, logger))

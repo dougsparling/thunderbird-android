@@ -479,6 +479,50 @@ class FaultProxyTest {
     }
 
     @Test
+    fun `forwards FETCH data the server sent after the tagged completion before that completion`() {
+        val lateServer = FakeImapServer { command ->
+            "${command.tag} OK UID FETCH done\r\n* 2 FETCH (UID 2 BODY[] {5}\r\nhello)\r\n".toByteArray()
+        }
+        lateServer.use {
+            FaultProxy.start("127.0.0.1", lateServer.port).use { proxy ->
+                val client = TestClient(proxy.port).also { clients += it }
+                client.readLine()
+
+                client.send("a1 UID FETCH 2 (BODY[])\r\n")
+                val fetchLine = client.readLine()
+                val body = String(client.readExactly(5))
+                val rest = listOf(client.readLine(), client.readLine())
+
+                assertThat(fetchLine).isEqualTo("* 2 FETCH (UID 2 BODY[] {5}")
+                assertThat(body).isEqualTo("hello")
+                assertThat(rest).containsExactly(")", "a1 OK UID FETCH done")
+                assertThat(proxy.transcript()).contains(
+                    "** server sent 1 FETCH response(s) after the tagged completion below; forwarded them first",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `keeps other untagged responses after a FETCH completion`() {
+        val lateServer = FakeImapServer { command ->
+            "${command.tag} OK UID FETCH done\r\n* 3 EXPUNGE\r\n".toByteArray()
+        }
+        lateServer.use {
+            FaultProxy.start("127.0.0.1", lateServer.port).use { proxy ->
+                val client = TestClient(proxy.port).also { clients += it }
+                client.readLine()
+
+                client.send("a1 UID FETCH 2 (FLAGS)\r\n")
+                val lines = listOf(client.readLine(), client.readLine())
+
+                assertThat(lines).containsExactly("a1 OK UID FETCH done", "* 3 EXPUNGE")
+                assertThat(proxy.transcript()).doesNotContain("forwarded them first")
+            }
+        }
+    }
+
+    @Test
     fun `transcript starts with a header`() {
         assertThat(testSubject.transcript()).startsWith("Fault proxy 127.0.0.1:${testSubject.port} -> 127.0.0.1:")
     }

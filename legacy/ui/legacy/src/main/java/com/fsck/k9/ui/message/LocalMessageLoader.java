@@ -7,22 +7,22 @@ import androidx.loader.content.AsyncTaskLoader;
 import net.thunderbird.core.android.account.LegacyAccountDto;
 import net.thunderbird.legacy.logging.Log;
 import app.k9mail.legacy.message.controller.MessageReference;
-import com.fsck.k9.controller.MessagingController;
 import net.thunderbird.core.common.exception.MessagingException;
 import com.fsck.k9.mailstore.LocalMessage;
+import com.fsck.k9.mailstore.LocalMessageReader;
 
 
 public class LocalMessageLoader extends AsyncTaskLoader<LocalMessage> {
-    private final MessagingController controller;
+    private final LocalMessageReader localMessageReader;
     private final LegacyAccountDto account;
     private final MessageReference messageReference;
     private final boolean onlyLoadMetadata;
     private LocalMessage message;
 
-    public LocalMessageLoader(Context context, MessagingController controller, LegacyAccountDto account,
+    public LocalMessageLoader(Context context, LocalMessageReader localMessageReader, LegacyAccountDto account,
             MessageReference messageReference, boolean onlyLoadMetaData) {
         super(context);
-        this.controller = controller;
+        this.localMessageReader = localMessageReader;
         this.account = account;
         this.messageReference = messageReference;
         this.onlyLoadMetadata = onlyLoadMetaData;
@@ -60,11 +60,11 @@ public class LocalMessageLoader extends AsyncTaskLoader<LocalMessage> {
     }
 
     private LocalMessage loadMessageMetadataFromDatabase() throws MessagingException {
-        return controller.loadMessageMetadata(account, messageReference.getFolderId(), messageReference.getUid());
+        return localMessageReader.loadMessageMetadata(account, messageReference.getFolderId(), messageReference.getUid());
     }
 
     private LocalMessage loadMessageFromDatabase() throws MessagingException {
-        return controller.loadMessage(account, messageReference.getFolderId(), messageReference.getUid());
+        return localMessageReader.loadMessage(account, messageReference.getFolderId(), messageReference.getUid());
     }
 
     public boolean isCreatedFor(MessageReference messageReference) {

@@ -7,23 +7,15 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.annotation.WorkerThread
-import app.k9mail.legacy.message.controller.SimpleMessagingListener
-import com.fsck.k9.mail.Message
-import com.fsck.k9.mail.Part
 import com.fsck.k9.mailstore.AttachmentViewInfo
-import com.fsck.k9.mailstore.LocalPart
 import com.fsck.k9.provider.AttachmentTempFileProvider
 import com.fsck.k9.ui.R
 import java.io.IOException
-import kotlin.coroutines.resume
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import net.thunderbird.core.android.account.LegacyAccountDto
-import net.thunderbird.core.android.account.LegacyAccountDtoManager
 import net.thunderbird.core.logging.Logger
 import org.apache.commons.io.IOUtils
 
@@ -122,32 +114,14 @@ class AttachmentController internal constructor(
         if (!success) displayAttachmentNotSavedMessage()
     }
 
-    private suspend fun downloadAttachment(): Boolean = suspendCancellableCoroutine { continuation ->
+    private suspend fun downloadAttachment(): Boolean {
         attachmentDisplayController.showAttachmentLoadingDialog()
-        controller.loadAttachment(
-            part = attachment.part,
-            listener = object : SimpleMessagingListener() {
-                override fun loadAttachmentFinished(account: LegacyAccountDto?, message: Message?, part: Part?) {
-                    attachment.setContentAvailable()
-                    attachmentDisplayController.hideAttachmentLoadingDialogOnMainThread()
-                    if (continuation.isActive) {
-                        continuation.resume(true)
-                    }
-                }
-
-                override fun loadAttachmentFailed(
-                    account: LegacyAccountDto?,
-                    message: Message?,
-                    part: Part?,
-                    reason: String?,
-                ) {
-                    attachmentDisplayController.hideAttachmentLoadingDialogOnMainThread()
-                    if (continuation.isActive) {
-                        continuation.resume(false)
-                    }
-                }
-            },
-        )
+        val success = controller.loadAttachment(checkNotNull(attachment.part))
+        if (success) {
+            attachment.setContentAvailable()
+        }
+        attachmentDisplayController.hideAttachmentLoadingDialogOnMainThread()
+        return success
     }
 
     private suspend fun viewLocalAttachment() {

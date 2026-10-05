@@ -29,7 +29,7 @@ val newAccountModule = module {
         AccountActivator(
             context = get(),
             preferences = get(),
-            messagingController = get(),
+            mailSynchronizer = get(),
         )
     }
 

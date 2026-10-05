@@ -8,7 +8,7 @@ internal val appCommonFeatureAccountModule = module {
     factory {
         AccountRemover(
             localStoreProvider = get(),
-            messagingController = get(),
+            newMailNotifications = get(),
             backendManager = get(),
             localKeyStoreManager = get(),
             preferences = get(),

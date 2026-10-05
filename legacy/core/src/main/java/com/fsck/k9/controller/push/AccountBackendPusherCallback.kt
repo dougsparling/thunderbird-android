@@ -1,29 +1,26 @@
 package com.fsck.k9.controller.push
 
 import com.fsck.k9.backend.api.BackendPusherCallback
-import com.fsck.k9.controller.MessagingController
-import net.thunderbird.core.android.account.LegacyAccountDtoManager
+import kotlinx.coroutines.runBlocking
 import net.thunderbird.core.logging.Logger
 import net.thunderbird.feature.account.AccountId
 import net.thunderbird.feature.mail.folder.api.data.repository.PushFolderTrackingRepository
+import net.thunderbird.feature.mail.sync.api.MailSynchronizer
 
 private const val TAG = "AccountBackendPusherCallback"
 
 class AccountBackendPusherCallback(
-    private val accountManager: LegacyAccountDtoManager,
-    private val messagingController: MessagingController,
+    private val mailSynchronizer: MailSynchronizer,
     private val pushFolderTrackingRepository: PushFolderTrackingRepository,
     private val accountId: AccountId,
     private val logger: Logger,
 ) : BackendPusherCallback {
     override fun onPushEvent(folderServerId: String) {
-        val account = accountManager.getAccount(accountId.toString())
-        messagingController.synchronizeMailboxBlocking(account, folderServerId)
+        runBlocking { mailSynchronizer.syncPushedFolder(accountId, folderServerId) }
     }
 
     override fun onPushError(exception: Exception) {
-        val account = accountManager.getAccount(accountId.toString())
-        messagingController.handleException(account, exception)
+        mailSynchronizer.reportError(accountId, exception)
     }
 
     override suspend fun onPushNotSupported() {

@@ -1,44 +1,33 @@
 package net.thunderbird.feature.navigation.drawer.dropdown.domain.usecase
 
-import app.k9mail.legacy.message.controller.MessagingListener
 import assertk.assertThat
+import assertk.assertions.containsExactly
 import assertk.assertions.isEqualTo
 import kotlin.test.Test
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import net.thunderbird.feature.account.AccountIdFactory
 import net.thunderbird.feature.navigation.drawer.dropdown.ui.FakeData
 
 internal class SyncAccountTest {
 
     @Test
     fun `should sync mail with account`() = runTest {
-        val listenerExecutor: (MessagingListener?) -> Unit = { listener ->
-            listener?.checkMailFinished(null, null)
-        }
         val account = FakeData.ACCOUNT
-        val accountManager = FakeLegacyAccountDtoManager(
-            accounts = listOf(account),
-        )
-        val messagingController = FakeMessagingControllerMailChecker(
-            listenerExecutor = listenerExecutor,
-        )
+        val mailSynchronizer = FakeMailSynchronizer()
         val testSubject = SyncAccount(
-            accountManager = accountManager,
-            messagingController = messagingController,
+            mailSynchronizer = mailSynchronizer,
         )
 
         val result = testSubject(account.uuid).first()
 
         assertThat(result.isSuccess).isEqualTo(true)
-        assertThat(accountManager.recordedParameters).isEqualTo(listOf(account.uuid))
-        assertThat(messagingController.recordedParameters).isEqualTo(
-            listOf(
-                CheckMailParameters(
-                    account = account,
-                    ignoreLastCheckedTime = true,
-                    useManualWakeLock = true,
-                    notify = true,
-                ),
+        assertThat(mailSynchronizer.recordedCheckMail).containsExactly(
+            CheckMailParameters(
+                accountId = AccountIdFactory.of(account.uuid),
+                ignoreLastCheckedTime = true,
+                useManualWakeLock = true,
+                notify = true,
             ),
         )
     }

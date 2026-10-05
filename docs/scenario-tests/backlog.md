@@ -55,7 +55,6 @@ parity; fixing them is a separate decision.
   (e.g. during account setup), doesn't notify the user: the folder list refresh wraps the
   `CertificateValidationException` in a `MessagingException`, and `notifyUserIfCertificateProblem` only checks the
   top-level exception type.
-
 - **PeriodicSyncRetryAfterNetworkFailureScenarioTest (plan C11):** after a periodic sync fails because the server is
   unreachable, the WorkManager retry skips INBOX as "checked too recently", because the failed sync recorded INBOX as
   checked (`ImapSync.kt` ~:244-251), so new mail waits for the next regular run. Visible since sync timestamps use the
@@ -158,3 +157,4 @@ Predicted to fail from code analysis and GitHub issues. Not implemented or run.
   dropped once on the first sync; two periodic syncs run.
 - **Then** no new-mail notifications.
 - **Predicted:** 3 notifications for old mail (`ImapSync.kt` lastChecked on failure ~:244-251).
+

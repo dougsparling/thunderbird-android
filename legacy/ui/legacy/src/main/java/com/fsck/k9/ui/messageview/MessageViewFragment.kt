@@ -45,7 +45,6 @@ import com.fsck.k9.activity.MessageLoaderHelper
 import com.fsck.k9.activity.MessageLoaderHelper.MessageLoaderCallbacks
 import com.fsck.k9.activity.MessageLoaderHelperFactory
 import com.fsck.k9.activity.compose.MessageActions
-import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.fragment.AttachmentDownloadDialogFragment
 import com.fsck.k9.fragment.ConfirmationDialogFragment
 import com.fsck.k9.fragment.ConfirmationDialogFragment.ConfirmationDialogFragmentListener
@@ -101,7 +100,14 @@ import net.thunderbird.feature.mail.message.reader.api.ui.MessageReaderViewContr
 import net.thunderbird.feature.mail.message.reader.api.ui.MessageReaderViewContract.Event
 import net.thunderbird.feature.mail.message.reader.api.ui.bridge.MessageReaderBottomSheet
 import net.thunderbird.legacy.logging.Log
+import com.fsck.k9.ui.helper.launchUserChange
+import kotlinx.coroutines.CoroutineScope
+import net.thunderbird.feature.mail.sync.api.MessageCapabilities
+import net.thunderbird.feature.mail.sync.api.MessageDeleteRepository
+import net.thunderbird.feature.mail.sync.api.MessageFlagRepository
+import net.thunderbird.feature.mail.sync.api.MessageMoveRepository
 import org.koin.android.ext.android.inject
+import org.koin.core.qualifier.named
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import org.koin.compose.koinInject
 import org.openintents.openpgp.util.OpenPgpIntentStarter
@@ -118,7 +124,11 @@ class MessageViewFragment :
     private val themeProvider: FeatureThemeProvider by inject()
     private val messageLoaderHelperFactory: MessageLoaderHelperFactory by inject()
     private val accountManager: LegacyAccountDtoManager by inject()
-    private val messagingController: MessagingController by inject()
+    private val capabilities: MessageCapabilities by inject()
+    private val flagRepository: MessageFlagRepository by inject()
+    private val moveRepository: MessageMoveRepository by inject()
+    private val deleteRepository: MessageDeleteRepository by inject()
+    private val appCoroutineScope: CoroutineScope by inject(named("AppCoroutineScope"))
     private val attachmentLoadingController: AttachmentLoadingController by inject()
     private val shareIntentBuilder: ShareIntentBuilder by inject()
     private val generalSettingsManager: GeneralSettingsManager by inject()
@@ -667,7 +677,8 @@ class MessageViewFragment :
 
         fragmentListener.performNavigationAfterMessageRemoval()
 
-        messagingController.deleteMessage(messageReference)
+        val messageReference = messageReference
+        appCoroutineScope.launchUserChange { deleteRepository.delete(listOf(messageReference)) }
     }
 
     private fun disableDeleteMenuItem() {
@@ -676,11 +687,11 @@ class MessageViewFragment :
     }
 
     private fun onRefile(destinationFolderId: Long?) {
-        if (destinationFolderId == null || !messagingController.isMoveCapable(account)) {
+        if (destinationFolderId == null || !capabilities.isMoveCapable(account.id)) {
             return
         }
 
-        if (!messagingController.isMoveCapable(messageReference)) {
+        if (!capabilities.isMoveCapable(messageReference)) {
             Toast.makeText(activity, R.string.move_copy_cannot_copy_unsynced_message, Toast.LENGTH_LONG).show()
             return
         }
@@ -696,8 +707,12 @@ class MessageViewFragment :
     private fun refileMessage(destinationFolderId: Long) {
         fragmentListener.performNavigationAfterMessageRemoval()
 
+        val accountId = account.id
         val sourceFolderId = messageReference.folderId
-        messagingController.moveMessage(account, sourceFolderId, messageReference, destinationFolderId)
+        val messages = listOf(messageReference)
+        appCoroutineScope.launchUserChange {
+            moveRepository.move(accountId, sourceFolderId, messages, destinationFolderId)
+        }
     }
 
     fun onReply(forceReplyAction: Boolean = false) {
@@ -748,10 +763,10 @@ class MessageViewFragment :
     }
 
     fun onMove() {
-        check(messagingController.isMoveCapable(account))
+        check(capabilities.isMoveCapable(account.id))
         checkNotNull(message)
 
-        if (!messagingController.isMoveCapable(messageReference)) {
+        if (!capabilities.isMoveCapable(messageReference)) {
             Toast.makeText(activity, R.string.move_copy_cannot_copy_unsynced_message, Toast.LENGTH_LONG).show()
             return
         }
@@ -767,10 +782,10 @@ class MessageViewFragment :
     }
 
     fun onCopy() {
-        check(messagingController.isCopyCapable(account))
+        check(capabilities.isCopyCapable(account.id))
         checkNotNull(message)
 
-        if (!messagingController.isCopyCapable(messageReference)) {
+        if (!capabilities.isCopyCapable(messageReference)) {
             Toast.makeText(activity, R.string.move_copy_cannot_copy_unsynced_message, Toast.LENGTH_LONG).show()
             return
         }
@@ -788,22 +803,23 @@ class MessageViewFragment :
     private fun onMoveToDrafts() {
         fragmentListener.performNavigationAfterMessageRemoval()
 
-        val account = account
+        val accountId = account.id
         val folderId = messageReference.folderId
         val messages = listOf(messageReference)
-        messagingController.moveToDraftsFolder(account, folderId, messages)
+        appCoroutineScope.launchUserChange { moveRepository.moveToDrafts(accountId, folderId, messages) }
     }
 
     fun onArchive() {
         if (!account.hasArchiveFolder()) return
 
-        if (!messagingController.isMoveCapable(messageReference)) {
+        if (!capabilities.isMoveCapable(messageReference)) {
             Toast.makeText(activity, R.string.move_copy_cannot_copy_unsynced_message, Toast.LENGTH_LONG).show()
             return
         }
 
         fragmentListener.performNavigationAfterMessageRemoval()
-        messagingController.archiveMessage(messageReference)
+        val messages = listOf(messageReference)
+        appCoroutineScope.launchUserChange { moveRepository.archive(messages) }
     }
 
     private fun onSpam() {
@@ -961,7 +977,9 @@ class MessageViewFragment :
         val message = checkNotNull(this.message)
 
         val newState = !message.isSet(flag)
-        messagingController.setFlag(account, message.folder.databaseId, listOf(message), flag, newState)
+        val reference = message.makeMessageReference()
+        appCoroutineScope.launchUserChange { flagRepository.update(reference, flag, newState) }
+        message.setFlagInternal(flag, newState)
 
         messageTopView.setHeaders(message, account, true)
 
@@ -969,11 +987,17 @@ class MessageViewFragment :
     }
 
     private fun moveMessage(reference: MessageReference?, folderId: Long) {
-        messagingController.moveMessage(account, messageReference.folderId, reference, folderId)
+        val messages = listOf(checkNotNull(reference))
+        val accountId = account.id
+        val sourceFolderId = messageReference.folderId
+        appCoroutineScope.launchUserChange { moveRepository.move(accountId, sourceFolderId, messages, folderId) }
     }
 
     private fun copyMessage(reference: MessageReference?, folderId: Long) {
-        messagingController.copyMessage(account, messageReference.folderId, reference, folderId)
+        val messages = listOf(checkNotNull(reference))
+        val accountId = account.id
+        val sourceFolderId = messageReference.folderId
+        appCoroutineScope.launchUserChange { moveRepository.copy(accountId, sourceFolderId, messages, folderId) }
     }
 
     private fun showDialog(dialogId: Int) {
@@ -1062,10 +1086,10 @@ class MessageViewFragment :
         get() = message?.isSet(Flag.SEEN) == true
 
     private val isCopyCapable: Boolean
-        get() = !isOutbox && messagingController.isCopyCapable(account)
+        get() = !isOutbox && capabilities.isCopyCapable(account.id)
 
     private val isMoveCapable: Boolean
-        get() = !isOutbox && messagingController.isMoveCapable(account)
+        get() = !isOutbox && capabilities.isMoveCapable(account.id)
 
     private fun canMessageBeArchived(): Boolean {
         val archiveFolderId = account.archiveFolderId ?: return false
@@ -1123,7 +1147,12 @@ class MessageViewFragment :
         val message = message ?: return
 
         if (!wasMessageMarkedAsOpened) {
-            messagingController.markMessageAsOpened(account, message)
+            val reference = message.makeMessageReference()
+            appCoroutineScope.launchUserChange {
+                if (flagRepository.markAsOpened(reference)) {
+                    message.setFlagInternal(Flag.SEEN, true)
+                }
+            }
             wasMessageMarkedAsOpened = true
         }
     }

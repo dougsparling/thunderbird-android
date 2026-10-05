@@ -51,8 +51,32 @@ class JamesTestMailServerTest {
         assertThat(webAdmin.requests).containsExactly(
             FakeWebAdmin.Request("PUT", "/domains/example.org", ""),
             FakeWebAdmin.Request("PUT", "/users/${first.username}", "{\"password\":\"p\\\"w\"}"),
+            FakeWebAdmin.Request("HEAD", "/users/${first.username}", ""),
             FakeWebAdmin.Request("PUT", "/users/${second.username}", "{\"password\":\"pw2\"}"),
+            FakeWebAdmin.Request("HEAD", "/users/${second.username}", ""),
         )
+    }
+
+    @Test
+    fun `createUser creates the user again when the server lost it`() {
+        // Arrange
+        webAdmin.loseUserCreations = 2
+        val testSubject = JamesTestMailServer(config)
+
+        // Act
+        val user = testSubject.createUser("SyncTest", "pw")
+
+        // Assert
+        assertThat(webAdmin.requests.map { "${it.method} ${it.path}" }).containsExactly(
+            "PUT /domains/example.org",
+            "PUT /users/${user.username}",
+            "HEAD /users/${user.username}",
+            "PUT /users/${user.username}",
+            "HEAD /users/${user.username}",
+            "PUT /users/${user.username}",
+            "HEAD /users/${user.username}",
+        )
+        assertThat(imapServer.users[user.username]).isEqualTo("pw")
     }
 
     @Test
@@ -98,7 +122,7 @@ class JamesTestMailServerTest {
         assertThat(capabilities).isEqualTo(
             setOf(ServerCapability.MOVE, ServerCapability.UIDPLUS, ServerCapability.IDLE),
         )
-        assertThat(webAdmin.requests.map { it.method }).containsExactly("PUT", "PUT", "DELETE", "DELETE")
+        assertThat(webAdmin.requests.map { it.method }).containsExactly("PUT", "PUT", "HEAD", "DELETE", "DELETE")
         assertThat(imapServer.users.keys.firstOrNull()).isNull()
     }
 
@@ -118,6 +142,10 @@ class FakeWebAdmin(private val imapServer: FakeImapServer) : AutoCloseable {
 
     @Volatile
     var failWith: Int? = null
+
+    /** How many of the next user creations answer 204 but aren't kept, like James' store under concurrent writes. */
+    @Volatile
+    var loseUserCreations = 0
 
     private val server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0).apply {
         createContext("/") { exchange ->
@@ -139,9 +167,15 @@ class FakeWebAdmin(private val imapServer: FakeImapServer) : AutoCloseable {
         val user = path.removePrefix("/users/")
         return when {
             method == "PUT" && path.startsWith("/users/") -> {
-                imapServer.users[user] = Regex("\"password\":\"(.*)\"}").find(body)!!.groupValues[1]
+                if (loseUserCreations > 0) {
+                    loseUserCreations--
+                } else {
+                    imapServer.users[user] = Regex("\"password\":\"(.*)\"}").find(body)!!.groupValues[1]
+                }
                 204
             }
+
+            method == "HEAD" && path.startsWith("/users/") -> if (user in imapServer.users) 200 else 404
 
             method == "DELETE" && path.endsWith("/mailboxes") -> 204
 

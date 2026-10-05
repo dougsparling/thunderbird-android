@@ -41,9 +41,21 @@ if (useChinaMirrors) {
         "com.github.cketti",
     )
 
+    // Groups that the general mirrors (Aliyun public, Tencent) hold incomplete copies of, but that the Plugin Portal
+    // mirror has in full. They're left to the Plugin Portal mirror.
+    val pluginPortalGroups = listOf(
+        // Tencent has the POM of gradle-versions-plugin 0.64.0 but not its jar
+        "io.github.ben-manes",
+    )
+
     fun MavenRepositoryContentDescriptor.mirrorContent() {
         releasesOnly()
         dedicatedRepositoryGroups.forEach(::excludeGroup)
+    }
+
+    fun MavenRepositoryContentDescriptor.generalMirrorContent() {
+        mirrorContent()
+        pluginPortalGroups.forEach(::excludeGroup)
     }
 
     fun RepositoryHandler.aliyunGoogle() = maven(url = "https://maven.aliyun.com/repository/google") {
@@ -63,12 +75,12 @@ if (useChinaMirrors) {
 
     fun RepositoryHandler.aliyunPublic() = maven(url = "https://maven.aliyun.com/repository/public") {
         name = "AliyunPublic"
-        mavenContent { mirrorContent() }
+        mavenContent { generalMirrorContent() }
     }
 
     fun RepositoryHandler.tencentPublic() = maven(url = "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/") {
         name = "TencentPublic"
-        mavenContent { mirrorContent() }
+        mavenContent { generalMirrorContent() }
     }
 
     settings.pluginManagement.repositories {

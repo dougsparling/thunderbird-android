@@ -3,10 +3,10 @@
   <ManuallySuppressedIssues/>
   <CurrentIssues>
     <ID>ComplexCondition:IntentDataMapper.kt:IntentDataMapper$Intent.ACTION_SEND == action || Intent.ACTION_SEND_MULTIPLE == action || Intent.ACTION_SENDTO == action || Intent.ACTION_VIEW == action</ID>
-    <ID>ComplexCondition:LegacyMessageListFragment.kt:LegacyMessageListFragment$operation == FolderOperation.MOVE &amp;&amp; !messagingController.isMoveCapable(account.id) || operation == FolderOperation.COPY &amp;&amp; !messagingController.isCopyCapable(account.id)</ID>
-    <ID>ComplexCondition:LegacyMessageListFragment.kt:LegacyMessageListFragment$operation == FolderOperation.MOVE &amp;&amp; !messagingController.isMoveCapable(message) || operation == FolderOperation.COPY &amp;&amp; !messagingController.isCopyCapable(message)</ID>
-    <ID>ComplexCondition:MessageListFragment.kt:MessageListFragment$operation == FolderOperation.MOVE &amp;&amp; !messagingController.isMoveCapable(account.id) || operation == FolderOperation.COPY &amp;&amp; !messagingController.isCopyCapable(account.id)</ID>
-    <ID>ComplexCondition:MessageListFragment.kt:MessageListFragment$operation == FolderOperation.MOVE &amp;&amp; !messagingController.isMoveCapable(message) || operation == FolderOperation.COPY &amp;&amp; !messagingController.isCopyCapable(message)</ID>
+    <ID>ComplexCondition:LegacyMessageListFragment.kt:LegacyMessageListFragment$operation == FolderOperation.MOVE &amp;&amp; !capabilities.isMoveCapable(account.id) || operation == FolderOperation.COPY &amp;&amp; !capabilities.isCopyCapable(account.id)</ID>
+    <ID>ComplexCondition:LegacyMessageListFragment.kt:LegacyMessageListFragment$operation == FolderOperation.MOVE &amp;&amp; !capabilities.isMoveCapable(message) || operation == FolderOperation.COPY &amp;&amp; !capabilities.isCopyCapable(message)</ID>
+    <ID>ComplexCondition:MessageListFragment.kt:MessageListFragment$operation == FolderOperation.MOVE &amp;&amp; !capabilities.isMoveCapable(account.id) || operation == FolderOperation.COPY &amp;&amp; !capabilities.isCopyCapable(account.id)</ID>
+    <ID>ComplexCondition:MessageListFragment.kt:MessageListFragment$operation == FolderOperation.MOVE &amp;&amp; !capabilities.isMoveCapable(message) || operation == FolderOperation.COPY &amp;&amp; !capabilities.isCopyCapable(message)</ID>
     <ID>ComplexCondition:TouchInterceptView.kt:TouchInterceptView$absoluteDeltaY &gt; touchSlop &amp;&amp; absoluteDeltaY &gt; absoluteDeltaX &amp;&amp; (scrollView.canScrollVertically(deltaY.toInt()) || webView.canScrollVertically(deltaY.toInt()))</ID>
     <ID>CyclomaticComplexMethod:AccountSettingsDataStore.kt:AccountSettingsDataStore$override fun getBoolean: Boolean</ID>
     <ID>CyclomaticComplexMethod:AccountSettingsDataStore.kt:AccountSettingsDataStore$override fun getString: String?</ID>

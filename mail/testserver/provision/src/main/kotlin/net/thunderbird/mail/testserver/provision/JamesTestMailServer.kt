@@ -40,9 +40,15 @@ class JamesTestMailServer(
     override fun createUser(nameHint: String, password: String): ProvisionedUser {
         ensureDomain()
         val username = "${uniqueLocalPart(nameHint)}@${config.domain}"
-        // TODO(verify against James): PUT /users/{user} with {"password": "..."} answers 204; 409 if the user exists.
-        send("PUT", "/users/${encodePathSegment(username)}", body = """{"password":${jsonString(password)}}""")
-        return ProvisionedUser(username, password)
+        val path = "/users/${encodePathSegment(username)}"
+        repeat(MAX_CREATE_ATTEMPTS) {
+            // TODO(verify against James): PUT /users/{user} with {"password": "..."} answers 204.
+            send("PUT", path, body = """{"password":${jsonString(password)}}""")
+            // James' in-memory user store sometimes loses one of two users created at the same moment (seen with
+            // scenario test JVMs starting in parallel), so only hand out a user the server still knows.
+            if (send("HEAD", path, acceptNotFound = true) != HTTP_NOT_FOUND) return ProvisionedUser(username, password)
+        }
+        throw IOException("James WebAdmin lost user $username $MAX_CREATE_ATTEMPTS times after creating it")
     }
 
     override fun deleteUser(user: ProvisionedUser) {
@@ -65,7 +71,8 @@ class JamesTestMailServer(
         }
     }
 
-    private fun send(method: String, path: String, body: String? = null, acceptNotFound: Boolean = false) {
+    /** Sends a WebAdmin request and returns the HTTP status; fails unless it's a success (or 404, if accepted). */
+    private fun send(method: String, path: String, body: String? = null, acceptNotFound: Boolean = false): Int {
         val request = HttpRequest.newBuilder(URI.create(adminUrl + path))
             .timeout(httpTimeout.toJavaDuration())
             .method(method, body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody())
@@ -85,11 +92,13 @@ class JamesTestMailServer(
                 "James WebAdmin $method $path failed: HTTP $status ${response.body().take(MAX_ERROR_BODY)}",
             )
         }
+        return status
     }
 
     private companion object {
         val HTTP_SUCCESS = 200..299
         const val HTTP_NOT_FOUND = 404
         const val MAX_ERROR_BODY = 500
+        const val MAX_CREATE_ATTEMPTS = 5
     }
 }

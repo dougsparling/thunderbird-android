@@ -24,7 +24,6 @@ import app.k9mail.feature.launcher.FeatureLauncherActivity
 import app.k9mail.feature.launcher.FeatureLauncherTarget
 import com.fsck.k9.activity.ManageIdentities
 import com.fsck.k9.activity.setup.AccountSetupComposition
-import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.crypto.OpenPgpApiHelper
 import com.fsck.k9.fragment.ConfirmationDialogFragment
 import com.fsck.k9.fragment.ConfirmationDialogFragment.ConfirmationDialogFragmentListener
@@ -53,12 +52,13 @@ import org.openintents.openpgp.OpenPgpApiManager
 import org.openintents.openpgp.util.OpenPgpKeyPreference
 import org.openintents.openpgp.util.OpenPgpProviderUtil
 import com.fsck.k9.ui.base.R as BaseR
+import net.thunderbird.feature.mail.sync.api.MessageCapabilities
 
 class AccountSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFragmentListener {
     private val viewModel: AccountSettingsViewModel by activityViewModel()
     private val dataStoreFactory: AccountSettingsDataStoreFactory by inject()
     private val openPgpApiManager: OpenPgpApiManager by inject { parametersOf(this) }
-    private val messagingController: MessagingController by inject()
+    private val capabilities: MessageCapabilities by inject()
     private val accountRemover: BackgroundAccountRemover by inject()
     private val notificationChannelManager: NotificationChannelManager by inject()
     private val notificationSettingsUpdater: NotificationSettingsUpdater by inject()
@@ -223,7 +223,7 @@ class AccountSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFr
 
     private fun initializeUploadSentMessages(account: LegacyAccountDto) {
         findPreference<Preference>(PREFERENCE_UPLOAD_SENT_MESSAGES)?.apply {
-            if (!messagingController.supportsUpload(account)) {
+            if (!capabilities.supportsUpload(account.id)) {
                 remove()
             }
         }
@@ -250,7 +250,7 @@ class AccountSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFr
 
     private fun initializeDeletePolicy(account: LegacyAccountDto) {
         (findPreference(PREFERENCE_DELETE_POLICY) as? ListPreference)?.apply {
-            if (!messagingController.supportsFlags(account)) {
+            if (!capabilities.supportsFlags(account.id)) {
                 removeEntry(DELETE_POLICY_MARK_AS_READ)
             }
         }
@@ -258,7 +258,7 @@ class AccountSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFr
 
     private fun initializeExpungePolicy(account: LegacyAccountDto) {
         findPreference<Preference>(PREFERENCE_EXPUNGE_POLICY)?.apply {
-            if (!messagingController.supportsExpunge(account)) {
+            if (!capabilities.supportsExpunge(account.id)) {
                 remove()
             }
         }
@@ -266,14 +266,14 @@ class AccountSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFr
 
     private fun initializeMessageAge(account: LegacyAccountDto) {
         findPreference<Preference>(PREFERENCE_MESSAGE_AGE)?.apply {
-            if (!messagingController.supportsSearchByDate(account)) {
+            if (!capabilities.supportsSearchByDate(account.id)) {
                 remove()
             }
         }
     }
 
     private fun initializeAdvancedPushSettings(account: LegacyAccountDto) {
-        if (!messagingController.isPushCapable(account)) {
+        if (!capabilities.isPushCapable(account.id)) {
             findPreference<Preference>(PREFERENCE_ADVANCED_PUSH_SETTINGS)?.remove()
         }
     }
@@ -427,11 +427,11 @@ class AccountSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFr
 
     private fun initializeFolderSettings(account: LegacyAccountDto) {
         findPreference<Preference>(PREFERENCE_FOLDERS)?.let {
-            if (!messagingController.supportsFolderSubscriptions(account)) {
+            if (!capabilities.supportsFolderSubscriptions(account.id)) {
                 findPreference<Preference>(PREFERENCE_SUBSCRIBED_FOLDERS_ONLY).remove()
             }
 
-            if (!messagingController.isMoveCapable(account)) {
+            if (!capabilities.isMoveCapable(account.id)) {
                 findPreference<Preference>(PREFERENCE_ARCHIVE_FOLDER).remove()
                 findPreference<Preference>(PREFERENCE_DRAFTS_FOLDER).remove()
                 findPreference<Preference>(PREFERENCE_SENT_FOLDER).remove()

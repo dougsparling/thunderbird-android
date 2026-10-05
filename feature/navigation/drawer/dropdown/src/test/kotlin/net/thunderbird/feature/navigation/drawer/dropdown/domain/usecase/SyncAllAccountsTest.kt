@@ -1,7 +1,7 @@
 package net.thunderbird.feature.navigation.drawer.dropdown.domain.usecase
 
-import app.k9mail.legacy.message.controller.MessagingListener
 import assertk.assertThat
+import assertk.assertions.containsExactly
 import assertk.assertions.isEqualTo
 import kotlin.test.Test
 import kotlinx.coroutines.flow.first
@@ -11,27 +11,20 @@ internal class SyncAllAccountsTest {
 
     @Test
     fun `should sync mail`() = runTest {
-        val listenerExecutor: (MessagingListener?) -> Unit = { listener ->
-            listener?.checkMailFinished(null, null)
-        }
-        val messagingController = FakeMessagingControllerMailChecker(
-            listenerExecutor = listenerExecutor,
-        )
+        val mailSynchronizer = FakeMailSynchronizer()
         val testSubject = SyncAllAccounts(
-            messagingController = messagingController,
+            mailSynchronizer = mailSynchronizer,
         )
 
         val result = testSubject().first()
 
         assertThat(result.isSuccess).isEqualTo(true)
-        assertThat(messagingController.recordedParameters).isEqualTo(
-            listOf(
-                CheckMailParameters(
-                    account = null,
-                    ignoreLastCheckedTime = true,
-                    useManualWakeLock = true,
-                    notify = true,
-                ),
+        assertThat(mailSynchronizer.recordedCheckMail).containsExactly(
+            CheckMailParameters(
+                accountId = null,
+                ignoreLastCheckedTime = true,
+                useManualWakeLock = true,
+                notify = true,
             ),
         )
     }

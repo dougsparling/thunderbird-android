@@ -8,9 +8,8 @@ import android.content.DialogInterface;
 import android.os.Bundle;
 import androidx.fragment.app.DialogFragment;
 
-import com.fsck.k9.controller.MessagingController;
-import app.k9mail.legacy.message.controller.MessagingListener;
-import app.k9mail.legacy.message.controller.SimpleMessagingListener;
+import app.k9mail.legacy.di.DI;
+import kotlinx.coroutines.Job;
 
 
 public class AttachmentDownloadDialogFragment extends DialogFragment {
@@ -18,8 +17,7 @@ public class AttachmentDownloadDialogFragment extends DialogFragment {
     private static final String ARG_MESSAGE = "message";
 
 
-    private MessagingListener messagingListener;
-    private MessagingController messagingController;
+    private Job progressJob;
 
 
     public static AttachmentDownloadDialogFragment newInstance(long size, String message) {
@@ -49,22 +47,15 @@ public class AttachmentDownloadDialogFragment extends DialogFragment {
         dialog.setProgressNumberFormat("%1d/%2d " + sizeUnit.shortName);
         dialog.show();
 
-        messagingListener = new SimpleMessagingListener() {
-            @Override
-            public void updateProgress(int progress) {
-                dialog.setProgress(sizeUnit.valueInSizeUnit(progress));
-            }
-        };
-
-        messagingController = MessagingController.getInstance(getActivity());
-        messagingController.addListener(messagingListener);
+        AttachmentProgressObserver progressObserver = DI.get(AttachmentProgressObserver.class);
+        progressJob = progressObserver.observe(progress -> dialog.setProgress(sizeUnit.valueInSizeUnit(progress)));
 
         return dialog;
     }
 
     @Override
     public void onDestroyView() {
-        messagingController.removeListener(messagingListener);
+        progressJob.cancel(null);
         super.onDestroyView();
     }
 

@@ -124,7 +124,8 @@ class FolderBuilder internal constructor(
     }
 
     /**
-     * Declares a message with [subject]; [block] adds anything else. Shorthand for tests where only the subject matters.
+     * Declares a message with [subject]; [block] adds anything else. Shorthand for tests where only the subject
+     * matters.
      */
     fun message(subject: String, block: MessageBuilder.() -> Unit = {}) {
         message {

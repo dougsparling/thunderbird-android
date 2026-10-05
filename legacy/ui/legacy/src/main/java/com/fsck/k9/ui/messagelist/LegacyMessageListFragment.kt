@@ -45,8 +45,6 @@ import app.k9mail.core.android.common.contact.ContactRepository
 import app.k9mail.feature.launcher.FeatureLauncherActivity
 import app.k9mail.feature.launcher.FeatureLauncherTarget
 import app.k9mail.legacy.message.controller.MessageReference
-import app.k9mail.legacy.message.controller.MessagingControllerRegistry
-import app.k9mail.legacy.message.controller.SimpleMessagingListener
 import app.k9mail.legacy.ui.folder.FolderNameFormatter
 import app.k9mail.ui.utils.itemtouchhelper.ItemTouchHelper
 import app.k9mail.ui.utils.linearlayoutmanager.LinearLayoutManager
@@ -54,7 +52,6 @@ import com.fsck.k9.K9
 import com.fsck.k9.activity.FolderInfoHolder
 import com.fsck.k9.activity.MessageSearchActivity
 import com.fsck.k9.activity.misc.ContactPicture
-import com.fsck.k9.controller.MessagingControllerWrapper
 import com.fsck.k9.fragment.ConfirmationDialogFragment
 import com.fsck.k9.fragment.ConfirmationDialogFragment.ConfirmationDialogFragmentListener
 import com.fsck.k9.helper.Utility
@@ -75,7 +72,6 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.snackbar.BaseTransientBottomBar.BaseCallback
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textview.MaterialTextView
-import java.util.concurrent.Future
 import kotlin.time.ExperimentalTime
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.coroutines.Dispatchers
@@ -124,6 +120,20 @@ import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import org.koin.core.parameter.parametersOf
 import net.thunderbird.feature.mail.message.list.R as MessageListApiR
+import net.thunderbird.feature.mail.sync.api.SyncEvent
+import net.thunderbird.feature.mail.sync.api.RemoteSearchEvent
+import net.thunderbird.feature.mail.sync.api.RemoteContentRepository
+import net.thunderbird.feature.mail.sync.api.OutboxSender
+import net.thunderbird.feature.mail.sync.api.MessageMoveRepository
+import net.thunderbird.feature.mail.sync.api.MessageFlagRepository
+import net.thunderbird.feature.mail.sync.api.MessageDeleteRepository
+import net.thunderbird.feature.mail.sync.api.MessageCapabilities
+import net.thunderbird.feature.mail.sync.api.MailSynchronizer
+import net.thunderbird.feature.account.AccountId
+import org.koin.core.qualifier.named
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
+import com.fsck.k9.ui.helper.launchUserChange
 
 const val MAXIMUM_MESSAGE_SORT_OVERRIDES = 3
 const val MINIMUM_CLICK_INTERVAL = 200L
@@ -161,8 +171,14 @@ class LegacyMessageListFragment :
     private val generalSettingsManager: GeneralSettingsManager by inject()
     private val sortTypeToastProvider: SortTypeToastProvider by inject()
     private val folderNameFormatter: FolderNameFormatter by inject { parametersOf(requireContext()) }
-    private val messagingController: MessagingControllerWrapper by inject()
-    private val messagingControllerRegistry: MessagingControllerRegistry by inject()
+    private val capabilities: MessageCapabilities by inject()
+    private val flagRepository: MessageFlagRepository by inject()
+    private val moveRepository: MessageMoveRepository by inject()
+    private val deleteRepository: MessageDeleteRepository by inject()
+    private val mailSynchronizer: MailSynchronizer by inject()
+    private val outboxSender: OutboxSender by inject()
+    private val remoteContent: RemoteContentRepository by inject()
+    private val appCoroutineScope: CoroutineScope by inject(named("AppCoroutineScope"))
     private val accountManager: LegacyAccountManager by inject()
     private val connectivityManager: ConnectivityManager by inject()
     private val localStoreProvider: LocalStoreProvider by inject()
@@ -218,7 +234,8 @@ class LegacyMessageListFragment :
     private var account: LegacyAccount? = null
 
     private var currentFolder: FolderInfoHolder? = null
-    private var remoteSearchFuture: Future<*>? = null
+    private var remoteSearchJob: Job? = null
+    private var syncEventsJob: Job? = null
     private var extraSearchResults: List<String>? = null
     private var threadTitle: String? = null
     private var allAccounts = false
@@ -787,7 +804,7 @@ class LegacyMessageListFragment :
 
         if (currentFolder.moreMessages && !localSearch.isManualSearch) {
             val folderId = currentFolder.databaseId
-            messagingController.loadMoreMessages(account.id, folderId)
+            mailSynchronizer.requestMoreMessages(account.id, folderId)
         } else if (isRemoteSearch) {
             val additionalSearchResults = extraSearchResults ?: return
             if (additionalSearchResults.isEmpty()) return
@@ -804,12 +821,11 @@ class LegacyMessageListFragment :
                 updateFooterText(null)
             }
 
-            messagingController.loadSearchResults(
-                account.id,
-                currentFolder.databaseId,
-                loadSearchResults,
-                activityListener,
-            )
+            lifecycleScope.launch {
+                handler.progress(true)
+                remoteContent.loadSearchResults(account.id, currentFolder.databaseId, loadSearchResults)
+                handler.progress(false)
+            }
         }
     }
 
@@ -844,7 +860,7 @@ class LegacyMessageListFragment :
         floatingActionButton = null
 
         if (isNewMessagesView && !requireActivity().isChangingConfigurations) {
-            account?.id?.let { messagingController.clearNewMessages(it) }
+            account?.id?.let { appCoroutineScope.launchUserChange { flagRepository.clearNewMessages(it) } }
         }
 
         super.onDestroyView()
@@ -902,7 +918,9 @@ class LegacyMessageListFragment :
             hasConnectivity = connectivityManager.isNetworkAvailable()
         }
 
-        messagingControllerRegistry.addListener(activityListener)
+        syncEventsJob = viewLifecycleOwner.lifecycleScope.launch {
+            mailSynchronizer.observeEvents().collect(activityListener::onSyncEvent)
+        }
 
         updateTitle()
     }
@@ -910,7 +928,8 @@ class LegacyMessageListFragment :
     override fun onPause() {
         super.onPause()
 
-        messagingControllerRegistry.removeListener(activityListener)
+        syncEventsJob?.cancel()
+        syncEventsJob = null
     }
 
     private fun goBack() {
@@ -939,14 +958,10 @@ class LegacyMessageListFragment :
 
         val account = this.account ?: return
 
-        remoteSearchFuture = messagingController.searchRemoteMessages(
-            account.id,
-            folderId,
-            queryString,
-            null,
-            null,
-            activityListener,
-        )
+        remoteSearchJob = lifecycleScope.launch {
+            remoteContent.searchOnServer(account.id, folderId, queryString, null, null)
+                .collect(activityListener::onRemoteSearchEvent)
+        }
 
         invalidateMenu()
     }
@@ -1022,15 +1037,17 @@ class LegacyMessageListFragment :
 
     private fun onDeleteConfirmed(messages: List<MessageReference>) {
         if (showingThreadedList) {
-            messagingController.deleteThreads(messages)
+            appCoroutineScope.launchUserChange { deleteRepository.deleteThreads(messages) }
         } else {
-            messagingController.deleteMessages(messages)
+            appCoroutineScope.launchUserChange { deleteRepository.delete(messages) }
         }
     }
 
     private fun onExpunge() {
         currentFolder?.let { folderInfoHolder ->
-            account?.id?.let { messagingController.expunge(it, folderInfoHolder.databaseId) }
+            account?.id?.let {
+                appCoroutineScope.launchUserChange { deleteRepository.expunge(it, folderInfoHolder.databaseId) }
+            }
         }
     }
 
@@ -1267,7 +1284,7 @@ class LegacyMessageListFragment :
     }
 
     private fun onSendPendingMessages() {
-        account?.id?.let { messagingController.sendPendingMessages(it, null) }
+        account?.id?.let { outboxSender.requestSendPending(it) }
     }
 
     private fun onDebugInvalidateAccessTokenServer() {
@@ -1514,10 +1531,12 @@ class LegacyMessageListFragment :
         val account = messageListItem.account
         if (showingThreadedList && messageListItem.threadCount > 1) {
             val threadRootId = messageListItem.threadRoot
-            messagingController.setFlagForThreads(account.id, listOf(threadRootId), flag, newState)
+            appCoroutineScope.launchUserChange {
+                flagRepository.updateThreads(account.id, listOf(threadRootId), flag, newState)
+            }
         } else {
             val messageId = messageListItem.databaseId
-            messagingController.setFlag(account.id, listOf(messageId), flag, newState)
+            appCoroutineScope.launchUserChange { flagRepository.update(account.id, listOf(messageId), flag, newState) }
         }
 
         computeBatchDirection()
@@ -1545,11 +1564,13 @@ class LegacyMessageListFragment :
 
         for (account in accounts) {
             messageMap[account]?.let { messageIds ->
-                messagingController.setFlag(account.id, messageIds, flag, newState)
+                appCoroutineScope.launchUserChange { flagRepository.update(account.id, messageIds, flag, newState) }
             }
 
             threadMap[account]?.let { threadRootIds ->
-                messagingController.setFlagForThreads(account.id, threadRootIds, flag, newState)
+                appCoroutineScope.launchUserChange {
+                    flagRepository.updateThreads(account.id, threadRootIds, flag, newState)
+                }
             }
         }
 
@@ -1659,9 +1680,9 @@ class LegacyMessageListFragment :
         if (!checkCopyOrMovePossible(messages, FolderOperation.MOVE)) return
 
         if (showingThreadedList) {
-            messagingController.archiveThreads(messages)
+            appCoroutineScope.launchUserChange { moveRepository.archiveThreads(messages) }
         } else {
-            messagingController.archiveMessages(messages)
+            appCoroutineScope.launchUserChange { moveRepository.archive(messages) }
         }
     }
 
@@ -1694,18 +1715,18 @@ class LegacyMessageListFragment :
 
         val account = accountManager.getAccount(messages.first().accountUuid) ?: return false
         if (operation == FolderOperation.MOVE &&
-            !messagingController.isMoveCapable(account.id) ||
+            !capabilities.isMoveCapable(account.id) ||
             operation == FolderOperation.COPY &&
-            !messagingController.isCopyCapable(account.id)
+            !capabilities.isCopyCapable(account.id)
         ) {
             return false
         }
 
         for (message in messages) {
             if (operation == FolderOperation.MOVE &&
-                !messagingController.isMoveCapable(message) ||
+                !capabilities.isMoveCapable(message) ||
                 operation == FolderOperation.COPY &&
-                !messagingController.isCopyCapable(message)
+                !capabilities.isCopyCapable(message)
             ) {
                 val toast = Toast.makeText(
                     activity,
@@ -1746,46 +1767,56 @@ class LegacyMessageListFragment :
 
             when (operation) {
                 FolderOperation.MOVE if showingThreadedList -> {
-                    messagingController.moveMessagesInThread(
-                        account.id,
-                        folderId,
-                        messagesInFolder,
-                        destinationFolderId,
-                    )
+                    appCoroutineScope.launchUserChange {
+                        moveRepository.moveThreads(
+                            account.id,
+                            folderId,
+                            messagesInFolder,
+                            destinationFolderId,
+                        )
+                    }
                 }
 
                 FolderOperation.MOVE -> {
-                    messagingController.moveMessages(
-                        account.id,
-                        folderId,
-                        messagesInFolder,
-                        destinationFolderId,
-                    )
+                    appCoroutineScope.launchUserChange {
+                        moveRepository.move(
+                            account.id,
+                            folderId,
+                            messagesInFolder,
+                            destinationFolderId,
+                        )
+                    }
                 }
 
                 FolderOperation.COPY if showingThreadedList -> {
-                    messagingController.copyMessagesInThread(
-                        account.id,
-                        folderId,
-                        messagesInFolder,
-                        destinationFolderId,
-                    )
+                    appCoroutineScope.launchUserChange {
+                        moveRepository.copyThreads(
+                            account.id,
+                            folderId,
+                            messagesInFolder,
+                            destinationFolderId,
+                        )
+                    }
                 }
 
                 FolderOperation.COPY -> {
-                    messagingController.copyMessages(
-                        account.id,
-                        folderId,
-                        messagesInFolder,
-                        destinationFolderId,
-                    )
+                    appCoroutineScope.launchUserChange {
+                        moveRepository.copy(
+                            account.id,
+                            folderId,
+                            messagesInFolder,
+                            destinationFolderId,
+                        )
+                    }
                 }
             }
         }
     }
 
     private fun onMoveToDraftsFolder(messages: List<MessageReference>) {
-        account?.id?.let { messagingController.moveToDraftsFolder(it, currentFolder!!.databaseId, messages) }
+        account?.id?.let {
+            appCoroutineScope.launchUserChange { moveRepository.moveToDrafts(it, currentFolder!!.databaseId, messages) }
+        }
         activeMessages = null
     }
 
@@ -1807,11 +1838,11 @@ class LegacyMessageListFragment :
             }
 
             R.id.dialog_confirm_empty_spam -> {
-                account?.id?.let { messagingController.emptySpam(it) }
+                account?.id?.let { appCoroutineScope.launchUserChange { deleteRepository.emptySpam(it) } }
             }
 
             R.id.dialog_confirm_empty_trash -> {
-                account?.id?.let { messagingController.emptyTrash(it) }
+                account?.id?.let { appCoroutineScope.launchUserChange { deleteRepository.emptyTrash(it) } }
             }
         }
     }
@@ -1847,40 +1878,32 @@ class LegacyMessageListFragment :
     private fun checkMail() {
         if (isSingleAccountMode && isSingleFolderMode) {
             val folderId = currentFolder!!.databaseId
-            account?.id?.let { messagingController.synchronizeMailbox(it, folderId, false, activityListener) }
-            account?.id?.let { messagingController.sendPendingMessages(it, activityListener) }
+            account?.id?.let { mailSynchronizer.requestFolderSync(it, folderId, false) }
+            account?.id?.let { outboxSender.requestSendPending(it) }
         } else if (allAccounts) {
-            messagingController.checkMail(null, true, true, false, activityListener)
+            mailSynchronizer.requestCheckMail(null, true, true, false)
         } else {
             for (accountUuid in accountUuids) {
                 val account = accountManager.getAccount(accountUuid)
-                account?.id?.let { messagingController.checkMail(it, true, true, false, activityListener) }
+                account?.id?.let { mailSynchronizer.requestCheckMail(it, true, true, false) }
             }
         }
     }
 
     override fun onStop() {
         // If we represent a remote search, then kill that before going back.
-        if (isRemoteSearch && remoteSearchFuture != null) {
+        val remoteSearchJob = this.remoteSearchJob
+        if (isRemoteSearch && remoteSearchJob != null) {
             try {
                 logger.info(logTag) { "Remote search in progress, attempting to abort..." }
 
-                // Canceling the future stops any message fetches in progress.
-                val cancelSuccess = remoteSearchFuture!!.cancel(true) // mayInterruptIfRunning = true
-                if (!cancelSuccess) {
-                    logger.error(logTag) { "Could not cancel remote search future." }
-                }
+                // Cancelling the search stops any message fetches in progress.
+                remoteSearchJob.cancel()
 
-                // Closing the folder will kill off the connection if we're mid-search.
                 val searchAccount = account!!
 
-                // Send a remoteSearchFinished() message for good measure.
-                activityListener.remoteSearchFinished(
-                    currentFolder!!.databaseId,
-                    0,
-                    searchAccount.remoteSearchNumResults,
-                    null,
-                )
+                // Report the search as finished for good measure.
+                activityListener.remoteSearchFinished(searchAccount.remoteSearchNumResults, null)
             } catch (e: Exception) {
                 // Since the user is going back, log and squash any exceptions.
                 logger.error(logTag, e) { "Could not abort remote search before going back" }
@@ -1980,7 +2003,7 @@ class LegacyMessageListFragment :
             if (localSearch.isManualSearch || isOutbox) return false
 
             val accountId = account?.id
-            return if (accountId == null || !messagingController.isMoveCapable(accountId)) {
+            return if (accountId == null || !capabilities.isMoveCapable(accountId)) {
                 // For POP3 accounts only the Inbox is a remote folder.
                 isInbox
             } else {
@@ -1993,7 +2016,7 @@ class LegacyMessageListFragment :
 
     private fun shouldShowExpungeAction(): Boolean {
         val account = this.account ?: return false
-        return account.expungePolicy == Expunge.EXPUNGE_MANUALLY && messagingController.supportsExpunge(account.id)
+        return account.expungePolicy == Expunge.EXPUNGE_MANUALLY && capabilities.supportsExpunge(account.id)
     }
 
     private fun onRemoteSearch() {
@@ -2009,7 +2032,7 @@ class LegacyMessageListFragment :
         get() = isManualSearch &&
             !isRemoteSearch &&
             isSingleFolderMode &&
-            (account?.id?.let { messagingController.isPushCapable(it) } == true)
+            (account?.id?.let { capabilities.isPushCapable(it) } == true)
 
     fun onSearchRequested(query: String): Boolean {
         val folderId = currentFolder?.databaseId
@@ -2057,7 +2080,7 @@ class LegacyMessageListFragment :
         messageListItems
             .map { it.account }
             .toSet()
-            .forEach { account -> messagingController.checkAuthenticationProblem(account.id) }
+            .forEach { account -> mailSynchronizer.checkAuthenticationProblem(account.id) }
 
         resetActionMode()
         computeBatchDirection()
@@ -2098,7 +2121,7 @@ class LegacyMessageListFragment :
     }
 
     override fun remoteSearchFinished() {
-        remoteSearchFuture = null
+        remoteSearchJob = null
     }
 
     override fun setActiveMessage(messageReference: MessageReference?) {
@@ -2190,7 +2213,9 @@ class LegacyMessageListFragment :
 
     private fun markAllAsRead() {
         if (isMarkAllAsReadSupported) {
-            account?.id?.let { messagingController.markAllMessagesRead(it, currentFolder!!.databaseId) }
+            account?.id?.let {
+                appCoroutineScope.launchUserChange { flagRepository.markAllAsRead(it, currentFolder!!.databaseId) }
+            }
         }
     }
 
@@ -2305,7 +2330,7 @@ class LegacyMessageListFragment :
             }
 
             SwipeAction.Delete -> true
-            SwipeAction.Move -> !isOutbox && messagingController.isMoveCapable(item.account.id)
+            SwipeAction.Move -> !isOutbox && capabilities.isMoveCapable(item.account.id)
             SwipeAction.Spam -> !isOutbox && item.account.hasSpamFolder() && item.folderId != item.account.spamFolderId
         }
     }
@@ -2340,7 +2365,8 @@ class LegacyMessageListFragment :
         }
     }
 
-    internal inner class MessageListActivityListener : SimpleMessagingListener() {
+    /** Shows the progress of syncs and server searches. */
+    internal inner class MessageListActivityListener {
         private val lock = Any()
 
         @GuardedBy("lock")
@@ -2349,7 +2375,31 @@ class LegacyMessageListFragment :
         @GuardedBy("lock")
         private var folderTotal = 0
 
-        override fun remoteSearchFailed(folderServerId: String?, err: String?) {
+        fun onSyncEvent(event: SyncEvent) {
+            when (event) {
+                is SyncEvent.FolderSyncStarted -> synchronizeMailboxStarted(event.accountId, event.folderId)
+                is SyncEvent.FolderHeadersProgress -> updateFolderProgress(event.completed, event.total)
+                is SyncEvent.FolderHeadersFinished -> updateFolderProgress(completed = 0, total = 0)
+                is SyncEvent.FolderSyncProgress -> updateFolderProgress(event.completed, event.total)
+                is SyncEvent.FolderSyncFinished -> synchronizeMailboxEnded(event.accountId, event.folderId)
+                is SyncEvent.FolderSyncFailed -> synchronizeMailboxEnded(event.accountId, event.folderId)
+                is SyncEvent.CheckMailFinished -> handler.progress(false)
+                is SyncEvent.CheckMailStarted, is SyncEvent.MessageUidChanged -> Unit
+            }
+        }
+
+        fun onRemoteSearchEvent(event: RemoteSearchEvent) {
+            when (event) {
+                RemoteSearchEvent.Started -> remoteSearchStarted()
+                is RemoteSearchEvent.ServerQueryComplete -> {
+                    remoteSearchServerQueryComplete(event.resultCount, event.resultLimit)
+                }
+                is RemoteSearchEvent.Failed -> remoteSearchFailed()
+                is RemoteSearchEvent.Finished -> remoteSearchFinished(event.resultLimit, event.moreResults)
+            }
+        }
+
+        private fun remoteSearchFailed() {
             handler.post {
                 activity?.let { activity ->
                     Toast.makeText(activity, R.string.remote_search_error, Toast.LENGTH_LONG).show()
@@ -2357,21 +2407,12 @@ class LegacyMessageListFragment :
             }
         }
 
-        override fun remoteSearchStarted(folderId: Long) {
+        private fun remoteSearchStarted() {
             handler.progress(true)
             handler.updateFooter(getString(R.string.remote_search_sending_query))
         }
 
-        override fun enableProgressIndicator(enable: Boolean) {
-            handler.progress(enable)
-        }
-
-        override fun remoteSearchFinished(
-            folderId: Long,
-            numResults: Int,
-            maxResults: Int,
-            extraResults: List<String>?,
-        ) {
+        fun remoteSearchFinished(maxResults: Int, extraResults: List<String>?) {
             handler.progress(false)
             handler.remoteSearchFinished()
 
@@ -2383,7 +2424,7 @@ class LegacyMessageListFragment :
             }
         }
 
-        override fun remoteSearchServerQueryComplete(folderId: Long, numResults: Int, maxResults: Int) {
+        private fun remoteSearchServerQueryComplete(numResults: Int, maxResults: Int) {
             handler.progress(true)
 
             val footerText = if (maxResults != 0 && numResults > maxResults) {
@@ -2405,8 +2446,8 @@ class LegacyMessageListFragment :
             handler.refreshTitle()
         }
 
-        override fun synchronizeMailboxStarted(account: LegacyAccountDto, folderId: Long) {
-            if (updateForMe(account, folderId)) {
+        private fun synchronizeMailboxStarted(accountId: AccountId, folderId: Long) {
+            if (updateForMe(accountId, folderId)) {
                 handler.progress(true)
                 handler.folderLoading(folderId, true)
 
@@ -2419,12 +2460,7 @@ class LegacyMessageListFragment :
             }
         }
 
-        override fun synchronizeMailboxHeadersProgress(
-            account: LegacyAccountDto,
-            folderServerId: String,
-            completed: Int,
-            total: Int,
-        ) {
+        private fun updateFolderProgress(completed: Int, total: Int) {
             synchronized(lock) {
                 folderCompleted = completed
                 folderTotal = total
@@ -2433,49 +2469,15 @@ class LegacyMessageListFragment :
             informUserOfStatus()
         }
 
-        override fun synchronizeMailboxHeadersFinished(
-            account: LegacyAccountDto,
-            folderServerId: String,
-            total: Int,
-            completed: Int,
-        ) {
-            synchronized(lock) {
-                folderCompleted = 0
-                folderTotal = 0
-            }
-
-            informUserOfStatus()
-        }
-
-        override fun synchronizeMailboxProgress(account: LegacyAccountDto, folderId: Long, completed: Int, total: Int) {
-            synchronized(lock) {
-                folderCompleted = completed
-                folderTotal = total
-            }
-
-            informUserOfStatus()
-        }
-
-        override fun synchronizeMailboxFinished(account: LegacyAccountDto, folderId: Long) {
-            if (updateForMe(account, folderId)) {
+        private fun synchronizeMailboxEnded(accountId: AccountId, folderId: Long) {
+            if (updateForMe(accountId, folderId)) {
                 handler.progress(false)
                 handler.folderLoading(folderId, false)
             }
         }
 
-        override fun synchronizeMailboxFailed(account: LegacyAccountDto, folderId: Long, message: String) {
-            if (updateForMe(account, folderId)) {
-                handler.progress(false)
-                handler.folderLoading(folderId, false)
-            }
-        }
-
-        override fun checkMailFinished(context: Context?, account: LegacyAccountDto?) {
-            handler.progress(false)
-        }
-
-        private fun updateForMe(account: LegacyAccountDto?, folderId: Long): Boolean {
-            if (account == null || account.uuid !in accountUuids) return false
+        private fun updateForMe(accountId: AccountId, folderId: Long): Boolean {
+            if (accountId.toString() !in accountUuids) return false
 
             val folderIds = localSearch.folderIds
             return folderIds.isEmpty() || folderId in folderIds
@@ -2582,11 +2584,11 @@ class LegacyMessageListFragment :
                     menu.findItem(R.id.move_to_drafts).isVisible = true
                 }
             } else {
-                if (!messagingController.isCopyCapable(account.id)) {
+                if (!capabilities.isCopyCapable(account.id)) {
                     menu.findItem(R.id.copy).isVisible = false
                 }
 
-                if (!messagingController.isMoveCapable(account.id)) {
+                if (!capabilities.isMoveCapable(account.id)) {
                     menu.findItem(R.id.move).isVisible = false
                     menu.findItem(R.id.archive).isVisible = false
                     menu.findItem(R.id.spam).isVisible = false

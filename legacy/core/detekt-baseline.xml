@@ -41,7 +41,7 @@
     <ID>ReturnCount:HttpUriParser.kt:HttpUriParser$private fun tryMatchIpv4Address: Int</ID>
     <ID>ReturnCount:ListUnsubscribeHelper.kt:ListUnsubscribeHelper$fun getPreferredListUnsubscribeUri: UnsubscribeUri?</ID>
     <ID>ReturnCount:ListUnsubscribeHelper.kt:ListUnsubscribeHelper$private fun extractUri: Uri?</ID>
-    <ID>ReturnCount:MailSyncWorker.kt:MailSyncWorker$override fun doWork: Result</ID>
+    <ID>ReturnCount:MailSyncWorker.kt:MailSyncWorker$override suspend fun doWork: Result</ID>
     <ID>ReturnCount:MessageHelper.kt:MessageHelper.Companion$@JvmStatic fun toFriendly: CharSequence</ID>
     <ID>ReturnCount:MessageRepository.kt:MessageRepository$private fun List&lt;Header&gt;.parseDate: MessageDate</ID>
     <ID>ReturnCount:PreviewTextExtractor.kt:PreviewTextExtractor$private fun extractUnquotedText: String</ID>

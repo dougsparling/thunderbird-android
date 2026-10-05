@@ -6,7 +6,6 @@ import app.k9mail.core.android.common.provider.NotificationIconResourceProvider
 import app.k9mail.feature.telemetry.telemetryModule
 import app.k9mail.legacy.di.DI
 import com.fsck.k9.backend.BackendManager
-import com.fsck.k9.controller.ControllerExtension
 import com.fsck.k9.crypto.EncryptionExtractor
 import com.fsck.k9.notification.NotificationActionCreator
 import com.fsck.k9.notification.NotificationResourceProvider
@@ -89,7 +88,6 @@ val testModule = module {
     single { mock<NotificationResourceProvider>() }
     single { mock<NotificationActionCreator>() }
     single { mock<NotificationStrategy>() }
-    single(named("controllerExtensions")) { emptyList<ControllerExtension>() }
     single<AccountDefaultsProvider> { FakeAccountDefaultsProvider() }
     single { mock<WorkManager>() }
     single<OutboxFolderManager> { FakeOutboxFolderManager() }

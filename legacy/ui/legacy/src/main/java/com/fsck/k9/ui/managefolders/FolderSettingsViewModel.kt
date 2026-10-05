@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.liveData
 import androidx.lifecycle.viewModelScope
 import com.fsck.k9.Preferences
-import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.helper.SingleLiveEvent
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -16,13 +15,16 @@ import net.thunderbird.feature.mail.folder.api.Folder
 import net.thunderbird.feature.mail.folder.api.FolderDetails
 import net.thunderbird.feature.mail.folder.api.data.repository.FolderDetailsRepository
 import net.thunderbird.legacy.logging.Log
+import net.thunderbird.feature.mail.sync.api.MessageDeleteRepository
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
 
 private const val NO_FOLDER_ID = 0L
 
 class FolderSettingsViewModel(
     private val preferences: Preferences,
     private val folderDetailsRepository: FolderDetailsRepository,
-    private val messagingController: MessagingController,
+    private val deleteRepository: MessageDeleteRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     private val actionLiveData = SingleLiveEvent<Action>()
@@ -80,7 +82,9 @@ class FolderSettingsViewModel(
     }
 
     fun onClearFolderConfirmation() {
-        messagingController.clearFolder(account, folderId)
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            deleteRepository.clearLocalMessages(account.id, folderId)
+        }
     }
 
     fun getActionEvents(): LiveData<Action> = actionLiveData
