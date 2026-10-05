@@ -69,21 +69,3 @@ public interface OutboxFolderManager {
 public fun OutboxFolderManager.getOutboxFolderIdSync(accountId: String, createIfMissing: Boolean = true): Long {
     return getOutboxFolderIdSync(accountId = AccountIdFactory.of(accountId), createIfMissing = createIfMissing)
 }
-
-/**
- * Checks if there are pending messages in the outbox folder for the given account.
- *
- * This is a blocking call and should not be used on the main thread.
- * This is a wrapper for Java compatibility. Always use `hasPendingMessages(uuid: AccountId): Boolean`
- * instead on Kotlin files.
- *
- * @param accountId The ID of the account.
- * @return True if there are pending messages, false otherwise.
- */
-@Discouraged(
-    message = "This is a wrapper for Java compatibility. " +
-        "Always use hasPendingMessages(uuid: AccountId): Boolean instead on Kotlin files.",
-)
-public fun OutboxFolderManager.hasPendingMessagesSync(accountId: String): Boolean = runBlocking {
-    hasPendingMessages(accountId = AccountIdFactory.of(accountId))
-}

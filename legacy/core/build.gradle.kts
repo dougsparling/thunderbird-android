@@ -74,7 +74,6 @@ dependencies {
 
     // test fakes
     testImplementation(projects.feature.account.fake)
-    testImplementation(projects.feature.notification.testing)
 }
 
 android {
