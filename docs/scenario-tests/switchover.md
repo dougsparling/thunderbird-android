@@ -74,14 +74,16 @@ Until it's deleted it reaches the engine through temporary seam interfaces in `l
   - Dispatchers are constructor parameters with defaults, so Koin's `verify()` accepts them.
   Suite: 105/105 (one run had the known push timeout, `PushResumesAfterDisconnectScenarioTest`; it passed alone and
   in the next full run).
-- **Slice 4, step 3 (next):** delete `MessagingController`, `ArchiveOperations`, `DraftOperations`,
-  `NotificationOperations`, `MemorizingMessagingListener`, `ControllerExtension` (+ `TestApp` binding,
-  `controllerExtensions` in `LegacyCommonAppModule`), `ControllerEngine`/`SerializerControllerEngine`/
-  `FakeControllerEngine`, `ProgressBodyFactory`, `MessagingControllerTest` (mock-based; scenarios cover it), the
-  `...internal.legacy` adapters, and listener types nothing uses any more (`MessagingListener`,
-  `SimpleMessagingListener`, `MessagingControllerRegistry`, `MessagingControllerMailChecker` in `legacy:message`).
-  `MailSyncWorker` becomes a `CoroutineWorker`. Update the comment in `UpgradeDatabaseActivity` and
-  `ScenarioApplication`.
+- **Slice 4, step 3 (done):** deleted `MessagingController`, `ArchiveOperations`, `DraftOperations`,
+  `NotificationOperations`, `MemorizingMessagingListener`, `ControllerExtension` (+ its bindings),
+  `ControllerEngine`/`SerializerControllerEngine`/`FakeControllerEngine`, `ProgressBodyFactory`, `NotificationState`,
+  `BackendDownloads`, `MessagingControllerTest`, the `...internal.legacy` adapters, and `MessagingListener`,
+  `SimpleMessagingListener`, `MessagingControllerRegistry`, `MessagingControllerMailChecker`. `PendingCommandExecutor`
+  moved to the engine package. `MailSyncWorker` is a `CoroutineWorker`; `syncPeriodically` records the last sync time
+  when the check finishes (on the serializer), so it's kept if WorkManager stops the worker, like the blocking worker
+  did. Under the harness, WorkManager runs coroutine workers on the configured `SynchronousExecutor`, so work still
+  runs inside the test driver's calls. Comments in `UpgradeDatabaseActivity` and `ScenarioApplication` updated.
+  Suite: 105/105. Slice 4 is done.
 
 ## Open items
 
@@ -99,3 +101,11 @@ Until it's deleted it reaches the engine through temporary seam interfaces in `l
   Fetch with `-PuseChinaMirrors=false`.
 - **Not run offline:** `:legacy:ui:legacy` unit tests (Robolectric wants an Android SDK jar that isn't cached) and
   `:feature:navigation:drawer:dropdown` unit tests (`ui-test-junit4` isn't cached).
+- **Not run offline (step 3):** `:legacy:message` unit tests (same `error_prone_annotations` gap as above).
+- **Stale ProGuard rule:** `app-thunderbird` and `app-k9mail` `proguard-rules.pro` still keep
+  `com.fsck.k9.controller.MessagingControllerCommands$*`, which no longer exists (the pending commands are
+  `com.fsck.k9.controller.Pending*` with Moshi's generated adapters since step 1). Left alone; check a release build
+  before removing it.
+- **Wake lock tag:** the manual mail check still uses the tag `K9 MessagingController.checkMail`, unchanged on
+  purpose.
+- **Unused helper:** `com.fsck.k9.helper.MutableBoolean` was only used by the controller.
