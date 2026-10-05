@@ -37,6 +37,16 @@ jobs:
 
       - name: Setup Gradle environment
         uses: ./.github/actions/setup-gradle
+        with:
+          write-cache: 'true'
+
+      # Robolectric downloads its Android SDK jars itself, outside Gradle's cache.
+      - name: Cache Robolectric SDK jars
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: robolectric-
 
       - name: Run scenario tests
         run: ./gradlew :app-thunderbird:testFossDebugUnitTest -PscenarioTests
