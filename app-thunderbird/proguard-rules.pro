@@ -68,7 +68,3 @@
 # appear unused, which causes R8 to strip them. This rule preserves all enum constants
 # so Moshi can deserialize them at runtime (e.g. via PendingCommandSerializer).
 -keep class net.thunderbird.core.common.mail.Flag { *; }
-
-# Moshi uses reflection to read field types. R8 can rewrite List/Map to ArrayList/HashMap,
-# which breaks Moshi's collection interface requirement.
--keep class com.fsck.k9.controller.MessagingControllerCommands$* { *; }
