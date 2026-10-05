@@ -134,8 +134,24 @@ class ScenarioDevice internal constructor(
                 text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
                 tapAction = notification.contentIntent?.let { shadowOf(it).savedIntent.action },
                 isOngoing = notification.flags and Notification.FLAG_ONGOING_EVENT != 0,
+                actions = notification.actions.orEmpty().map { it.title.toString() },
+                key = statusBarNotification.key,
             )
         }
+    }
+
+    /**
+     * The user taps the button labelled [action] on [notification] (as the notification shade shows it), and the
+     * device runs what the button starts.
+     */
+    fun tapNotificationAction(notification: ClientNotification, action: String) {
+        val notificationManager = application.getSystemService(NotificationManager::class.java)
+        val shown = notificationManager.activeNotifications.singleOrNull { it.key == notification.key }
+            ?: error("The notification '${notification.title}' isn't shown any more")
+        val button = shown.notification.actions.orEmpty().singleOrNull { it.title.toString() == action }
+            ?: error("The notification '${notification.title}' has no action '$action'; it has ${notification.actions}")
+        button.actionIntent.send()
+        settle()
     }
 
     /** Lets [duration] pass. Background work and alarms that become due run, as they would on a device. */
@@ -335,12 +351,17 @@ enum class AppPermission {
     EXACT_ALARMS,
 }
 
-/** A notification as the user sees it. [tapAction] is the intent action a tap starts, if any. */
+/**
+ * A notification as the user sees it. [tapAction] is the intent action a tap starts, if any; [actions] are the labels
+ * of its buttons, see [ScenarioDevice.tapNotificationAction].
+ */
 data class ClientNotification(
     val title: String?,
     val text: String?,
     val tapAction: String?,
     val isOngoing: Boolean,
+    val actions: List<String> = emptyList(),
+    internal val key: String = "",
 )
 
 private val AppPermission.runtimePermission: String?

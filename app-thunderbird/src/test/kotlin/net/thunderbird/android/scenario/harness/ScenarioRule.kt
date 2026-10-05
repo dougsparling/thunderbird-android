@@ -29,20 +29,33 @@ interface ScenarioScope {
     /** The Android device the app runs on: permissions, time, background work, notifications. */
     val device: ScenarioDevice
 
-    /** The fault proxy between the app and the server. Its transcript is printed when the scenario fails. */
+    /**
+     * The fault proxy between the app and the server's IMAP port. Its transcript is printed when the scenario fails.
+     */
     val proxy: FaultProxy
 
-    /** Replaces the proxy's active network rules, e.g. `network { imap.onCommand("UID STORE")... }`. */
+    /** The fault proxy between the app and the server's SMTP port, used by every account to send mail. */
+    val smtpProxy: FaultProxy
+
+    /** The fault proxy between the app and the server's POP3 port, used by POP3 accounts. */
+    val pop3Proxy: FaultProxy
+
+    /** Replaces the IMAP proxy's active network rules, e.g. `network { imap.onCommand("UID STORE")... }`. */
     fun network(block: NetworkRulesBuilder.() -> Unit)
 
+    /** Replaces the SMTP proxy's active network rules, e.g. `smtpNetwork { refuseConnections() }`. */
+    fun smtpNetwork(block: NetworkRulesBuilder.() -> Unit)
+
     /**
-     * The device loses its network: the proxy refuses new connections and resets the open ones, and the app is told
+     * The device loses its network: the proxies refuse new connections and reset the open ones, and the app is told
      * the network is gone ([ScenarioDevice.setOnline]). Other network rules stay active, but their use counts
      * (`once()`, `times(n)`) start over.
      */
     fun goOffline()
 
-    /** The device is back online: the proxy accepts connections again and the app is told the network is available. */
+    /**
+     * The device is back online: the proxies accept connections again and the app is told the network is available.
+     */
     fun goOnline()
 
     /**
@@ -64,33 +77,46 @@ interface ScenarioScope {
 
 class ScenarioClient internal constructor(
     private val driverProvider: () -> ScenarioDriver,
-    private val proxyProvider: () -> FaultProxy,
+    private val proxyProvider: (MailProtocol) -> FaultProxy,
+    private val smtpProxyProvider: () -> FaultProxy,
     private val onFirstAccount: () -> Unit,
 ) {
     /**
-     * Adds an account for [user] to the app, connecting through the fault proxy. Pass a different [password] to set
-     * the account up with wrong credentials, and [checkIntervalMinutes] to have the app schedule periodic mail sync
-     * (it runs as [ScenarioDevice.advanceTime] lets time pass); without it the account never syncs in the background.
-     * With [notifyNewMail] the user gets notifications for new inbox mail found by background sync or push.
+     * Adds an account for [user] to the app, connecting through the fault proxies. Pass a different [password] (or
+     * [smtpPassword]) to set the account up with wrong credentials, and [checkIntervalMinutes] to have the app
+     * schedule periodic mail sync (it runs as [ScenarioDevice.advanceTime] lets time pass); without it the account
+     * never syncs in the background. With [notifyNewMail] the user gets notifications for new inbox mail found by
+     * background sync or push. [settings] are changed in the account settings right after setup, i.e. after the
+     * first mail check.
      */
     fun account(
         user: ProvisionedUser,
         password: String = user.password,
+        smtpPassword: String = user.password,
+        protocol: MailProtocol = MailProtocol.IMAP,
         checkIntervalMinutes: Int? = null,
         notifyNewMail: Boolean = false,
+        settings: ClientAccountSettings? = null,
     ): ClientAccount {
         onFirstAccount()
-        return driverProvider().addAccount(
+        val driver = driverProvider()
+        val account = driver.addAccount(
             AccountSpec(
                 email = user.username,
-                imapHost = PROXY_HOST,
-                imapPort = proxyProvider().port,
+                protocol = protocol,
+                incomingHost = PROXY_HOST,
+                incomingPort = proxyProvider(protocol).port,
+                smtpHost = PROXY_HOST,
+                smtpPort = smtpProxyProvider().port,
                 username = user.username,
                 password = password,
+                smtpPassword = smtpPassword,
                 checkIntervalMinutes = checkIntervalMinutes,
                 notifyNewMail = notifyNewMail,
             ),
         )
+        settings?.let { driver.changeSettings(account, it) }
+        return account
     }
 
     private companion object {
@@ -138,6 +164,15 @@ class ScenarioRule : TestRule {
 
         private val serverDelegate = lazy { ScenarioServer(config, nameHint) }
         private val proxyDelegate = lazy { FaultProxy.start(config.imapHost, config.imapPort) }
+        private val smtpProxyDelegate = lazy {
+            val smtp = checkNotNull(config.smtp) { "The test mail server has no SMTP endpoint (testserver.smtp)" }
+            FaultProxy.start(smtp.host, smtp.port)
+        }
+        private val pop3ProxyDelegate = lazy {
+            val pop3 = checkNotNull(config.pop3) { "The test mail server has no POP3 endpoint (testserver.pop3)" }
+            FaultProxy.start(pop3.host, pop3.port)
+        }
+        private val proxyDelegates = listOf(proxyDelegate, smtpProxyDelegate, pop3ProxyDelegate)
 
         // The device replaces platform parts (WorkManager) the app caches, so it's set up before the app is used.
         private val deviceDelegate = lazy { ScenarioDevice(GlobalContext.get(), awaitAppIdle = { driver.awaitIdle() }) }
@@ -148,26 +183,44 @@ class ScenarioRule : TestRule {
 
         override val server: ScenarioServer by serverDelegate
         override val proxy: FaultProxy by proxyDelegate
+        override val smtpProxy: FaultProxy by smtpProxyDelegate
+        override val pop3Proxy: FaultProxy by pop3ProxyDelegate
         override val driver: ScenarioDriver by driverDelegate
         override val device: ScenarioDevice by deviceDelegate
         override val client = ScenarioClient(
             driverProvider = { driver },
-            proxyProvider = { proxy },
+            proxyProvider = { protocol ->
+                when (protocol) {
+                    MailProtocol.IMAP -> proxy
+                    MailProtocol.POP3 -> pop3Proxy
+                }
+            },
+            smtpProxyProvider = { smtpProxy },
             onFirstAccount = { device.markAppInUse() },
         )
+
+        /** The proxies the scenario has used so far. */
+        private val startedProxies: List<FaultProxy>
+            get() = proxyDelegates.filter { it.isInitialized() }.map { it.value }
 
         override fun network(block: NetworkRulesBuilder.() -> Unit) {
             proxy.apply(networkRules(block))
         }
 
+        override fun smtpNetwork(block: NetworkRulesBuilder.() -> Unit) {
+            smtpProxy.apply(networkRules(block))
+        }
+
         override fun goOffline() {
-            proxy.apply(proxy.activeRules.copy(refuseConnections = true))
-            proxy.disconnectAll(reset = true)
+            startedProxies.forEach { proxy ->
+                proxy.apply(proxy.activeRules.copy(refuseConnections = true))
+                proxy.disconnectAll(reset = true)
+            }
             device.setOnline(false)
         }
 
         override fun goOnline() {
-            proxy.apply(proxy.activeRules.copy(refuseConnections = false))
+            startedProxies.forEach { proxy -> proxy.apply(proxy.activeRules.copy(refuseConnections = false)) }
             device.setOnline(true)
         }
 
@@ -201,15 +254,20 @@ class ScenarioRule : TestRule {
         }
 
         fun printDiagnostics(description: Description) {
-            if (!proxyDelegate.isInitialized()) return
+            val named = listOf("IMAP" to proxyDelegate, "SMTP" to smtpProxyDelegate, "POP3" to pop3ProxyDelegate)
+                .filter { (_, delegate) -> delegate.isInitialized() }
+            if (named.isEmpty()) return
 
             System.err.println(
                 buildString {
                     appendLine("==== Scenario failed: ${description.displayName} ====")
-                    appendLine("Active network rules: ${proxy.activeRules.describe()}")
-                    appendLine("---- Proxy transcript (app <-> test mail server) ----")
-                    appendLine(proxy.transcript())
-                    appendLine("---- End of proxy transcript ----")
+                    for ((protocol, delegate) in named) {
+                        val proxy = delegate.value
+                        appendLine("Active $protocol network rules: ${proxy.activeRules.describe()}")
+                        appendLine("---- $protocol proxy transcript (app <-> test mail server) ----")
+                        appendLine(proxy.transcript())
+                        appendLine("---- End of $protocol proxy transcript ----")
+                    }
                 },
             )
         }
@@ -223,7 +281,7 @@ class ScenarioRule : TestRule {
 
             if (driverDelegate.isInitialized()) attempt { driver.close() }
             if (deviceDelegate.isInitialized()) attempt { device.close() }
-            if (proxyDelegate.isInitialized()) attempt { proxy.close() }
+            startedProxies.forEach { proxy -> attempt { proxy.close() } }
             if (serverDelegate.isInitialized()) {
                 // Leftover users only cost memory on the test server, so failing to delete them doesn't fail the test.
                 runCatching { server.deleteUsers() }.exceptionOrNull()?.let { e ->
