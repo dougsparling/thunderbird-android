@@ -31,6 +31,9 @@ Bug-hunting is explicitly out of scope for now; scenarios that expose bugs go to
 ./gradlew --offline :mail:testserver:fixture:test :mail:testserver:provision:test
 ```
 
+CI: `.github/workflows/test-scenarios.yml` runs the suite on pull requests (and on demand) on a standard GitHub runner,
+in about 17–20 minutes, and uploads the test reports and `james.log`.
+
 Scenario tests are excluded from normal unit test runs; they run with `-PscenarioTests` or when `--tests` names them.
 Gradle starts James automatically (a build service in `build-plugin/.../testserver/`, James memory app 3.9.0 from
 Maven Central, config templates in `mail/testserver/james/conf/`, working dir `build/testserver/james/`, log
@@ -91,6 +94,11 @@ A scenario (`scenario { … }`) sees:
   then RST. `stall()` is useless until timeouts are injectable (the app's read timeout is a fixed 60 s).
 - **Offline:** pooled IMAP connections survive rule changes, so "offline" = `refuseConnections()` +
   `proxy.disconnectAll()`.
+- **James races under load** (seen on GitHub's runners, reproducible locally with all cores busy): James 3.9
+  sometimes sends a FETCH's tagged completion before some of its untagged FETCH responses, and its in-memory user
+  store sometimes loses one of two users created at the same moment. The fault proxy restores the response order
+  (holds a FETCH completion up to 25 ms; the transcript says "forwarded them first" when it did), and `createUser`
+  checks the user exists and creates it again if not. Don't remove either while the suite runs on James 3.9.
 - **James:** separator is `.`; James auto-creates Drafts/Outbox/Sent/Spam/Trash for new users; requires a Bcc-removal
   mailet (already in the config); `<plainAuthDisallowed>false` + `<compress>false` in `imapserver.xml`.
 - **Two message lists exist**: the new MVI one (`enable_message_list_new_state`, off by default) seems to only reload

@@ -81,6 +81,16 @@ Found by reading the sync code and matching GitHub issues; no scenario yet. Deta
 - **The new MVI message list's refresh doesn't contact the server.** With `enable_message_list_new_state` on, `Refresh`
   only seems to reload local data. Worth checking before that flag is switched on.
 
+## Bugs in Apache James 3.9 (the test server)
+
+Found while getting the suite to run on GitHub's runners. Both only show up when the machine is busy, and the harness
+works around both (see `HANDOFF.md`, "James races under load").
+
+- **FETCH responses after the tagged completion:** James sometimes sends `<tag> OK FETCH completed` before some of
+  the command's `* n FETCH` responses. The app then misses message bodies or reads them as part of its next command.
+- **Lost users:** James' in-memory user store sometimes loses one of two users created at the same moment through
+  WebAdmin; logging in as the lost user fails with "Invalid login/password".
+
 ## Not bugs, for the record
 
 - **Test flakes** under parallel load: push scenarios (waiting for IDLE) and one provisioning login failure. All pass on
