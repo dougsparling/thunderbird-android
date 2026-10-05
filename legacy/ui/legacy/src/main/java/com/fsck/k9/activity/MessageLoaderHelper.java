@@ -18,13 +18,11 @@ import androidx.loader.content.Loader;
 import com.fsck.k9.Preferences;
 import com.fsck.k9.autocrypt.AutocryptOperations;
 import app.k9mail.legacy.message.controller.MessageReference;
-import com.fsck.k9.controller.MessagingController;
-import app.k9mail.legacy.message.controller.MessagingListener;
-import app.k9mail.legacy.message.controller.SimpleMessagingListener;
 import com.fsck.k9.helper.RetainFragment;
 import net.thunderbird.core.common.mail.Flag;
 import net.thunderbird.core.common.exception.MessagingException;
 import com.fsck.k9.mailstore.LocalMessage;
+import com.fsck.k9.mailstore.LocalMessageReader;
 import com.fsck.k9.mailstore.MessageCryptoAnnotations;
 import com.fsck.k9.mailstore.MessageViewInfo;
 import com.fsck.k9.mailstore.MessageViewInfoExtractor;
@@ -43,7 +41,7 @@ import net.thunderbird.legacy.logging.Log;
  *
  * In particular, it takes care of the following:
  *  - load raw message data from the database, using LocalMessageLoader
- *  - download partial message content if it is missing using MessagingController
+ *  - download partial message content if it is missing using MessageBodyDownloader
  *  - apply crypto operations if applicable, using MessageCryptoHelper
  *  - extract MessageViewInfo from the message and crypto data using DecodeMessageLoader
  *  - download complete message content for partially downloaded messages if requested
@@ -84,6 +82,8 @@ public class MessageLoaderHelper {
     @Nullable // make this explicitly nullable, make sure to cancel/ignore any operation if this is null
     private MessageLoaderCallbacks callback;
     private final MessageViewInfoExtractor messageViewInfoExtractor;
+    private final LocalMessageReader localMessageReader;
+    private final MessageBodyDownloader messageBodyDownloader;
     private Handler handler = new Handler(Looper.getMainLooper());
 
     // transient state
@@ -99,8 +99,11 @@ public class MessageLoaderHelper {
 
 
     public MessageLoaderHelper(Context context, LoaderManager loaderManager, FragmentManager fragmentManager,
-            @NonNull MessageLoaderCallbacks callback, MessageViewInfoExtractor messageViewInfoExtractor) {
+            @NonNull MessageLoaderCallbacks callback, MessageViewInfoExtractor messageViewInfoExtractor,
+            LocalMessageReader localMessageReader, MessageBodyDownloader messageBodyDownloader) {
         this.context = context;
+        this.localMessageReader = localMessageReader;
+        this.messageBodyDownloader = messageBodyDownloader;
         this.loaderManager = loaderManager;
         this.fragmentManager = fragmentManager;
         this.callback = callback;
@@ -267,8 +270,7 @@ public class MessageLoaderHelper {
                 throw new IllegalStateException("loader id must be message loader id");
             }
 
-            MessagingController messagingController = MessagingController.getInstance(context);
-            return new LocalMessageLoader(context, messagingController, account, messageReference, onlyLoadMetadata);
+            return new LocalMessageLoader(context, localMessageReader, account, messageReference, onlyLoadMetadata);
         }
 
         @Override
@@ -454,13 +456,7 @@ public class MessageLoaderHelper {
     // download missing body
 
     private void startDownloadingMessageBody(boolean downloadComplete) {
-        if (downloadComplete) {
-            MessagingController.getInstance(context).loadMessageRemote(
-                    account, messageReference.getFolderId(), messageReference.getUid(), downloadMessageListener);
-        } else {
-            MessagingController.getInstance(context).loadMessageRemotePartial(
-                    account, messageReference.getFolderId(), messageReference.getUid(), downloadMessageListener);
-        }
+        messageBodyDownloader.download(messageReference, downloadComplete, downloadMessageCallback);
     }
 
     private void onMessageDownloadFinished() {
@@ -475,23 +471,23 @@ public class MessageLoaderHelper {
         startOrResumeLocalMessageLoader();
     }
 
-    private void onDownloadMessageFailed(final Throwable t) {
+    private void onDownloadMessageFailed(boolean messageNotFound) {
         if (callback == null) {
             return;
         }
 
-        if (t instanceof IllegalArgumentException) {
+        if (messageNotFound) {
             callback.onDownloadErrorMessageNotFound();
         } else {
             callback.onDownloadErrorNetworkError();
         }
     }
 
-    MessagingListener downloadMessageListener = new SimpleMessagingListener() {
+    MessageBodyDownloader.Callback downloadMessageCallback = new MessageBodyDownloader.Callback() {
         @Override
-        public void loadMessageRemoteFinished(final LegacyAccountDto account, final long folderId, final String uid) {
+        public void onDownloadFinished(MessageReference downloadedMessage) {
             handler.post(() -> {
-                if (!messageReference.equals(account.getUuid(), folderId, uid)) {
+                if (!messageReference.equals(downloadedMessage)) {
                     return;
                 }
                 onMessageDownloadFinished();
@@ -499,13 +495,13 @@ public class MessageLoaderHelper {
         }
 
         @Override
-        public void loadMessageRemoteFailed(LegacyAccountDto account, long folderId, String uid, final Throwable t) {
-            handler.post(new Runnable() {
-                @Override
-                public void run() {
-                    onDownloadMessageFailed(t);
-                }
-            });
+        public void onMessageNotFound() {
+            handler.post(() -> onDownloadMessageFailed(true));
+        }
+
+        @Override
+        public void onDownloadFailed() {
+            handler.post(() -> onDownloadMessageFailed(false));
         }
     };
 

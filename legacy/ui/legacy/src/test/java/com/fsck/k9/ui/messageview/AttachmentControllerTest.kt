@@ -6,14 +6,12 @@ import android.content.Intent
 import android.content.pm.ProviderInfo
 import androidx.core.net.toUri
 import androidx.test.core.app.ApplicationProvider
-import app.k9mail.legacy.message.controller.MessagingListener
 import assertk.assertThat
 import assertk.assertions.isNotNull
 import assertk.assertions.isTrue
 import com.fsck.k9.mail.Part
 import com.fsck.k9.mailstore.AttachmentViewInfo
 import com.fsck.k9.mailstore.LocalBodyPart
-import com.fsck.k9.mailstore.LocalPart
 import com.fsck.k9.provider.AttachmentTempFileProvider
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -25,7 +23,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.core.android.testing.RobolectricTest
 import net.thunderbird.core.common.appConfig.PlatformConfigProvider
 import net.thunderbird.legacy.logging.Log
@@ -213,14 +210,7 @@ class AttachmentControllerTest : RobolectricTest() {
     }
 
     class FakeAttachmentLoadingController : AttachmentLoadingController {
-        override fun loadAttachment(
-            part: Part?,
-            listener: MessagingListener,
-        ) {
-            val localPart = part as? LocalPart
-            val account = LegacyAccountDto("00000000-0000-4000-0000-000000000000")
-            listener.loadAttachmentFinished(account, localPart?.message, part)
-        }
+        override suspend fun loadAttachment(part: Part): Boolean = true
     }
 
     private class FakeGeneralSettingsManager : GeneralSettingsManager {

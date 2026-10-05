@@ -66,6 +66,7 @@ import com.fsck.k9.mail.power.WakeLock;
 import com.fsck.k9.mailstore.LocalFolder;
 import com.fsck.k9.mailstore.LocalMessage;
 import com.fsck.k9.mailstore.LocalStore;
+import com.fsck.k9.mailstore.LocalMessageReader;
 import com.fsck.k9.mailstore.LocalStoreProvider;
 import com.fsck.k9.mailstore.MessageListCache;
 import com.fsck.k9.mailstore.OutboxState;
@@ -123,6 +124,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
     private final NotificationController notificationController;
     private final NotificationStrategy notificationStrategy;
     private final LocalStoreProvider localStoreProvider;
+    private final LocalMessageReader localMessageReader;
     private final BackendManager backendManager;
     private final Preferences preferences;
     private final MessageStoreManager messageStoreManager;
@@ -176,6 +178,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
         this.notificationController = notificationController;
         this.notificationStrategy = notificationStrategy;
         this.localStoreProvider = localStoreProvider;
+        this.localMessageReader = new LocalMessageReader(localStoreProvider);
         this.backendManager = backendManager;
         this.preferences = preferences;
         this.messageStoreManager = messageStoreManager;
@@ -1221,40 +1224,12 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
     }
 
     public LocalMessage loadMessage(LegacyAccountDto account, long folderId, String uid) throws MessagingException {
-        LocalStore localStore = localStoreProvider.getInstance(account);
-        LocalFolder localFolder = localStore.getFolder(folderId);
-        localFolder.open();
-
-        LocalMessage message = localFolder.getMessage(uid);
-        if (message == null || message.getDatabaseId() == 0) {
-            String folderName = localFolder.getName();
-            throw new IllegalArgumentException("Message not found: folder=" + folderName + ", uid=" + uid);
-        }
-
-        FetchProfile fp = new FetchProfile();
-        fp.add(FetchProfile.Item.BODY);
-        localFolder.fetch(Collections.singletonList(message), fp, null);
-
-        return message;
+        return localMessageReader.loadMessage(account, folderId, uid);
     }
 
     public LocalMessage loadMessageMetadata(LegacyAccountDto account, long folderId, String uid)
         throws MessagingException {
-        LocalStore localStore = localStoreProvider.getInstance(account);
-        LocalFolder localFolder = localStore.getFolder(folderId);
-        localFolder.open();
-
-        LocalMessage message = localFolder.getMessage(uid);
-        if (message == null || message.getDatabaseId() == 0) {
-            String folderName = localFolder.getName();
-            throw new IllegalArgumentException("Message not found: folder=" + folderName + ", uid=" + uid);
-        }
-
-        FetchProfile fp = new FetchProfile();
-        fp.add(FetchProfile.Item.ENVELOPE);
-        localFolder.fetch(Collections.singletonList(message), fp, null);
-
-        return message;
+        return localMessageReader.loadMessageMetadata(account, folderId, uid);
     }
 
     public void markMessageAsOpened(LegacyAccountDto account, LocalMessage message) {
