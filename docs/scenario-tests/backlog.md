@@ -32,6 +32,30 @@ Plan item IDs refer to [`scenario-plan.md`](scenario-plan.md). Line references a
 - Likely area: the local copy created by the offline move isn't removed when the server-side move fails
   (`MessagingController.java` move/copy ~:969-1032, :1872-1943).
 
+### Lost response to a move leaves a duplicate (found 2026-10-05 while writing E12.3; same family as B3)
+
+- **Given** INBOX has A, synced; folder Work exists. **When** the user moves A to Work and the connection drops after
+  the server applied `UID MOVE` (proxy `afterServerResponds { disconnect() }`, once); the user refreshes INBOX and
+  Work (with or without an app restart in between).
+- **Then (expected)** A is in Work once, on the server and in the app.
+- **Observed:** the server is right, but the app shows A twice in Work. The retried `UID MOVE` gets
+  `BAD MOVE failed. Invalid messageset.` (A is already gone from INBOX), the command is dropped as a permanent
+  failure without removing the app's placeholder copy in Work, and the next sync of Work downloads the real copy next
+  to it (`MessagingController.java` pending commands ~:796-843, move/copy ~:969-1032).
+
+## Pinned as current behaviour (in the suite, documented in the scenario)
+
+These scenarios pass because they pin what the app does today, which looks wrong. A replacement must match them for
+parity; fixing them is a separate decision.
+
+- **MoveToDraftsScenarioTest:** "Move to Drafts" saves a draft but deletes only the app's copy of the message
+  (`moveToDraftsFolderInBackground` calls `message.destroy()`); the server keeps it in INBOX, so it reappears after
+  the next refresh.
+- **CertificateErrorScenarioTest:** a certificate the device doesn't trust, found while refreshing the folder list
+  (e.g. during account setup), doesn't notify the user: the folder list refresh wraps the
+  `CertificateValidationException` in a `MessagingException`, and `notifyUserIfCertificateProblem` only checks the
+  top-level exception type.
+
 ## Blocked by the harness
 
 ### C4 NoNotificationStormAfterUidValidityScenarioTest
@@ -42,6 +66,24 @@ Plan item IDs refer to [`scenario-plan.md`](scenario-plan.md). Line references a
 - **Then (expected)** no new-mail notifications; the app still lists the 10 messages.
 - **Blocked:** `server.recreateFolder` can't recreate INBOX (INBOX can't be deleted). Needs a harness way to change
   INBOX's UIDVALIDITY, e.g. through the James WebAdmin API or by recreating the user's mailbox.
+
+### E10.3 FolderSyncedTooRecentlyScenarioTest and E10.4 FolderListRefreshedWhenStaleScenarioTest
+
+- **E10.3:** a periodic sync shortly after a manual refresh doesn't sync the folder again (the account's check
+  interval hasn't passed since the folder was last checked). **E10.4:** a folder created on another device shows up
+  through a periodic sync once the app's folder list is more than 30 minutes old, without a manual folder refresh.
+- **Blocked:** both depend on timestamps the app takes from the system clock, which scenarios can't move: IMAP and
+  POP3 sync record a folder's last check with it (`ImapSync.kt` ~:229, :247), and the folder list staleness check uses
+  `System.currentTimeMillis()` (`MessagingController.java` ~:628). E10.4 was written and fails for this reason. The fix
+  is to read the injected `Clock` there (production code, needs approval).
+
+### Not covered
+
+- The ongoing "checking mail" and "sending" notifications (`account_notify_sync`): they only exist while a background
+  sync or send runs, and the harness can't look at the device in the middle of one.
+- `clearNewMessages` (the "new messages" view) and `sendMessageBlocking` (Autocrypt setup message): not reachable from
+  the legacy message list's regular screens.
+- OAuth sign-in itself (needs an OAuth provider); only the "not signed in" state is pinned.
 
 ## Predicted: [BACKLOG] scenarios (not implemented)
 
