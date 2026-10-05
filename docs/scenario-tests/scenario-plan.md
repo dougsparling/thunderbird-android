@@ -98,3 +98,162 @@ D5  DeleteFromTrashScenarioTest — delete A in Trash: removed from server entir
 D6  NewServerFolderScenarioTest — server gains folder Clients/2025 with a message; refresh folders + pull:
     folder listed, message shown.
 D7  VisibleLimitScenarioTest — 40 messages on server, display count 25: app shows newest 25, oldest not listed.
+
+## Group E — parity gaps for replacing MessagingController (added 2026-10-05)
+
+PURPOSE: every public operation of `MessagingController` that a user can reach from the legacy message list, the
+message view, compose, notifications, settings or background work is pinned by at least one scenario, so the
+replacement can be checked against the same suite. Same conventions as above. `[H…]` names the harness capability a
+scenario needs (see "Harness work for group E" below). Expected outcomes are what the app does today; where today's
+behaviour looks wrong but is consistent, the scenario pins it and says so in a comment (parity first).
+
+### E1 Sending (Outbox, SMTP) [H1]
+E1.1  SendMessageScenarioTest — compose and send to another test user: recipient's INBOX has it (subject, body);
+      sender's server Sent has it `\Seen`; app Outbox empty; app Sent shows it.
+E1.2  SendWithoutSentUploadScenarioTest — "upload sent messages" off: delivered; server Sent empty; app Sent empty
+      (the local copy is deleted).
+E1.3  SendWhileOfflineScenarioTest — offline: send; Outbox shows it; nothing delivered; online + pull to refresh:
+      delivered, Outbox empty.
+E1.4  SendTransientFailureScenarioTest — SMTP connection dropped once (proxy): message stays in Outbox; next attempt
+      delivers it; a send-failed notification appears after the failure and is gone after the success.
+E1.5  SendPermanentFailureScenarioTest — recipient rejected with 5xx: message stays in Outbox, not retried by later
+      attempts, send-failed notification shown.
+E1.6  SendRetriesExhaustedScenarioTest — SMTP down for MAX_SEND_ATTEMPTS attempts: message stops being retried
+      (stays in Outbox) once the limit is reached.
+E1.7  SendAuthFailureScenarioTest — wrong SMTP password: message stays in Outbox, outgoing auth-error notification;
+      after fixing the password the next attempt sends it.
+E1.8  SentUploadInterruptedScenarioTest — APPEND to Sent dropped after the server stored it: after the retry,
+      server Sent has exactly one copy (no duplicate; `X_REMOTE_COPY_STARTED` + Message-ID lookup).
+E1.9  PeriodicSyncSendsOutboxScenarioTest — message left in Outbox while offline is sent by the next periodic sync.
+
+### E2 Drafts [H2]
+E2.1  SaveDraftScenarioTest — save a draft: server Drafts has it (`\Draft`, `\Seen`); app Drafts shows it.
+E2.2  UpdateDraftScenarioTest — save, edit, save again: server Drafts has exactly the latest version.
+E2.3  SendDraftScenarioTest — open draft, send: delivered; server and app Drafts empty.
+E2.4  DiscardDraftScenarioTest — discard a saved draft: gone from server Drafts (and not in Trash, which is the
+      app's "delete draft skipping trash" path) — pin whatever today does.
+E2.5  SaveDraftOfflineScenarioTest — save offline, edit offline, online + refresh: server Drafts has one, latest copy.
+E2.6  MoveToDraftsScenarioTest — "move to drafts" on a message in INBOX: message leaves INBOX (server + app) and
+      appears in Drafts.
+
+### E3 Copy and thread actions [H3]
+E3.1  CopyToFolderScenarioTest — copy A from INBOX to Work: both folders have A on server and in app.
+E3.2  ThreadedDeleteScenarioTest — threaded list, delete a 3-message thread: all three in server Trash.
+E3.3  ThreadedArchiveScenarioTest — archive a thread: all messages in server Archive.
+E3.4  ThreadedMoveScenarioTest / ThreadedCopyScenarioTest — move/copy a thread to Work.
+E3.5  ThreadedMarkReadScenarioTest / ThreadedStarScenarioTest — flags on a thread reach every message on the server.
+E3.6  ThreadAcrossFoldersScenarioTest — thread with a message in INBOX and a reply in Sent: delete the thread from
+      INBOX's threaded list; pin which messages move (today: messages of the thread in the acting folder's thread).
+
+### E4 Reading messages [H4]
+E4.1  OpenMessageMarksReadScenarioTest — open unread A: read in app and `\Seen` on server; no extra refresh.
+E4.2  OpenMessageWithoutMarkReadScenarioTest — "mark as read when opened" off: A stays unread; its new-mail
+      notification is still removed.
+E4.3  OpenLargeMessageDownloadsBodyScenarioTest — message above the auto-download size: list shows it, opening
+      downloads the full body (text visible).
+E4.4  DownloadAttachmentScenarioTest — open message with an attachment above the auto-download size; download it:
+      bytes match.
+E4.5  AttachmentDownloadFailsScenarioTest — connection dropped during the part FETCH: download reports failure; a
+      second attempt succeeds.
+E4.6  OpenMessageClearsNotificationScenarioTest — push delivers A with notification; opening A removes it.
+
+### E5 Remote search [H5]
+E5.1  RemoteSearchScenarioTest — older message not synced locally (beyond display count): server search finds it,
+      it's listed and openable.
+E5.2  RemoteSearchResultLimitScenarioTest — more hits than the remote-search limit: first N shown, "load more
+      results" fetches the rest.
+E5.3  RemoteSearchFailsScenarioTest — SEARCH dropped: search reports failure, app keeps working.
+
+### E6 Delete, expunge and spam policies [H6]
+E6.1  DeletePolicyNeverScenarioTest — "delete from server: never": app hides A (moves to local Trash), server untouched.
+E6.2  DeletePolicyMarkReadScenarioTest — "mark as read": server A `\Seen`, still in INBOX.
+E6.3  DeleteWithoutTrashFolderScenarioTest — no trash folder: A flagged `\Deleted` (and expunged per expunge policy).
+E6.4  DeleteKeepsUnreadScenarioTest — "mark as read on delete" off: A in server Trash, unread.
+E6.5  ManualExpungeScenarioTest — expunge policy "manually": deleted-without-trash message stays `\Deleted` on server
+      until the user expunges the folder.
+E6.6  EmptySpamScenarioTest — Spam has 2 messages; empty spam: server Spam empty.
+E6.7  MoveToSpamScenarioTest — move A to Spam (the "spam" action): server Spam has A.
+E6.8  ClearLocalFolderScenarioTest — "clear local messages" in folder settings: app folder empty, server untouched;
+      next refresh brings them back.
+
+### E7 Notifications [H7]
+E7.1  NotificationMarkReadActionScenarioTest — new-mail notification, tap "Mark read": `\Seen` on server, notification
+      gone.
+E7.2  NotificationDeleteActionScenarioTest — "Delete" action: A in server Trash.
+E7.3  NotificationArchiveActionScenarioTest — "Archive" action.
+E7.4  NotificationSpamActionScenarioTest — "Spam" action.
+E7.5  NotificationStarActionScenarioTest — "Star" action.
+E7.6  NotificationClearedWhenReadElsewhereScenarioTest — another client marks A read; next sync removes A's
+      notification.
+E7.7  NotificationClearedWhenDeletedElsewhereScenarioTest — another client expunges A; next sync removes it.
+E7.8  NoNotificationForAlreadyReadScenarioTest — A delivered already `\Seen`: no notification.
+E7.9  SyncNotificationScenarioTest — "show sync notification" on: an ongoing "checking mail" notification during
+      sync, gone after.
+E7.10 NotificationsForSeveralMessagesScenarioTest — 3 new messages in one sync: one summary (pin count/text).
+
+### E8 Multiple accounts and unified inbox [H8]
+E8.1  SyncAllAccountsScenarioTest — two accounts on different users; "sync all" (drawer): both INBOXes refreshed.
+E8.2  UnifiedInboxActionsScenarioTest — mark read and delete one message from each account in the unified inbox:
+      each server changed, other untouched.
+E8.3  AccountsSyncIndependentlyScenarioTest — account B's server unreachable: account A still syncs.
+E8.4  RemoveAccountScenarioTest — remove an account with offline changes pending: app has no trace of it; the other
+      account keeps working; server of the removed one untouched by the pending changes.
+E8.5  ActionDuringSlowSyncScenarioTest — slow first sync (proxy throttle) on A; mark read on B meanwhile: both finish
+      and reach their servers (ordering across accounts not asserted).
+
+### E9 POP3 [H9]
+E9.1  Pop3FetchScenarioTest — POP3 account: INBOX shows server mail; new mail appears on refresh.
+E9.2  Pop3DeleteScenarioTest — delete: local Trash only; server per delete policy (pin today's default).
+E9.3  Pop3NoFlagSyncScenarioTest — mark read/star: local only, nothing sent to the server; capability-gated actions
+      (move, archive) refused as in the UI.
+E9.4  Pop3EmptyTrashScenarioTest — local-only trash emptied.
+
+### E10 Folder settings and sync scope [H10]
+E10.1 HiddenFolderNotSyncedScenarioTest — folder hidden: periodic sync skips it.
+E10.2 SyncDisabledFolderScenarioTest — folder sync off: periodic sync skips it, pull to refresh still syncs it.
+E10.3 FolderSyncedTooRecentlyScenarioTest — periodic sync shortly after a manual refresh doesn't re-sync the folder.
+E10.4 FolderListRefreshedWhenStaleScenarioTest — new server folder appears after 30 minutes without an explicit
+      folder refresh (staleness check on sync).
+E10.5 UnreadCountsScenarioTest — unread counts in the folder list follow mark read, delete, move, server changes.
+
+### E11 Account state and errors [H11]
+E11.1 OAuthSignInRequiredScenarioTest — OAuth account without a token: sync skipped, "sign in" notification.
+E11.2 CertificateErrorScenarioTest — server certificate untrusted: certificate-error notification, no sync.
+E11.3 OutgoingAuthCheckScenarioTest — `checkAuthenticationProblem` paths reachable from settings.
+
+### E12 Durability [H12]
+E12.1 PendingChangesSurviveRestartScenarioTest — offline: mark read, star, delete, move; app restarts; online +
+      refresh: all four reach the server.
+E12.2 OutboxSurvivesRestartScenarioTest — offline send; restart; online: delivered.
+E12.3 InterruptedMoveSurvivesRestartScenarioTest — MOVE applied but response lost, app restarts: one copy, right place.
+
+### E13 Concurrency inside one account [H13]
+E13.1 ActionDuringLongSyncScenarioTest — first sync of a large folder throttled; user stars a message in another
+      folder meanwhile: star reaches server, sync completes.
+E13.2 OpenMessageDuringSyncScenarioTest — open a not-yet-downloaded message while INBOX syncs: body loads.
+E13.3 PushAndPeriodicOverlapScenarioTest — push and periodic sync of the same folder: no duplicate messages.
+
+## Harness work for group E
+
+H1  SMTP: enable James SMTP with AUTH (plaintext, loopback), port in TestServerConfig; a second fault proxy for SMTP;
+    AccountSpec gets SMTP settings; driver.send(account, to, subject, text, attachments). Delivery checked via the
+    recipient's server state. Reject rules: unknown local recipients get 5xx (ValidRcptHandler).
+H2  Compose: driver.saveDraft / editDraft / sendDraft / discardDraft / moveToDrafts, mirroring MessageCompose and
+    SaveMessageTask.
+H3  Threaded list: threaded message list reads and thread actions; driver.copy; fixture threads via
+    In-Reply-To/References headers.
+H4  Message view: driver.open(account, folder, subject) → ClientMessageContent (text, attachments), mirroring
+    MessageViewFragment/MessageLoaderHelper; driver.downloadAttachment.
+H5  Search: driver.searchOnServer / loadMoreSearchResults, mirroring LegacyMessageListFragment's remote search.
+H6  Account settings: ClientAccountSettings (delete policy, mark read on delete, expunge policy, mark read on open,
+    auto-download size, upload sent, notify sync, remote search limit) at account creation and via
+    driver.changeSettings; driver.expunge, emptySpam, clearLocalMessages.
+H7  Notification actions: ClientNotification gains its actions; device.tapAction(notification, label) fires the
+    PendingIntent like SystemUI.
+H8  Multi-account: several client.account() calls; driver.syncAllAccounts, unified inbox reads/actions,
+    driver.removeAccount.
+H9  POP3: enable James POP3; client.account(user, protocol = POP3).
+H10 Folder settings: driver.setFolderVisible / setFolderSyncEnabled.
+H11 OAuth account without token; TLS endpoint with an untrusted certificate.
+H12 App restart inside one test: stop the sync core and Koin, re-run app startup on the same data directory.
+H13 Slow server: proxy latency/throttle rules (exist) applied per connection.
