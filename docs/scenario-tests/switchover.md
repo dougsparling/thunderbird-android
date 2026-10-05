@@ -95,15 +95,17 @@ The switchover is done; these are the checks and decisions left, roughly in orde
 first (the connection is metered: build the list of what's missing, then ask the user to fetch it with
 `-PuseChinaMirrors=false`).
 
-1. **Release builds.** Nothing on these branches was built with R8. Run `assembleRelease` (or the closest variant
-   that doesn't need signing keys) for `app-thunderbird` and `app-k9mail`. Then remove the stale ProGuard rule (see
-   "Open items") and build again.
-2. **Code coverage.** `legacy:core` declares minimums (41 % branch, 46 % line), checked only with coverage enabled:
-   `./gradlew -PcodeCoverageDisabled=false :legacy:core:koverVerify`. `MessagingControllerTest` (458 lines) was
-   deleted together with the code it covered, so the numbers may have moved either way. If they drop below the
-   minimum, discuss with the user before lowering them.
-3. **Tests that weren't run:** unit tests of `:legacy:message`, `:legacy:ui:legacy` and
-   `:feature:navigation:drawer:dropdown` (dependencies not cached, see "Open items"); the full `./gradlew lint`;
+1. **Release builds (done).** `minifyFossReleaseWithR8` passes for `app-thunderbird` and `app-k9mail` (R8 without
+   signing). The stale `MessagingControllerCommands$*` keep rule is removed: Moshi's own R8 rules keep the generated
+   adapters, and the mapping shows all ten `Pending*` classes and their `*JsonAdapter`s under their own names. Not
+   checked at runtime: a release build reading pending commands written by an older version (needs a device).
+2. **Code coverage (done).** `legacy:core`: 47.87 % branch, 53.81 % line (minimums 41 % / 46 %), `koverVerify`
+   passes. `-PcodeCoverageDisabled=false` has no effect: `CodeCoverageExtension.initialize()` sets the `disabled`
+   convention to `true` after the plugin set it from the property, so Kover's tasks are always skipped. The numbers
+   came from temporarily adding `disabled = false` to `legacy/core`'s `codeCoverage { }` block. The bug is on `main`
+   (since `a6b58321a1`); not fixed here.
+3. **Tests that weren't run:** unit tests of `:legacy:message` (6), `:legacy:ui:legacy` (270) and
+   `:feature:navigation:drawer:dropdown` (37) now pass. Still not run: the full `./gradlew lint` and
    `connectedAndroidTest` (needs a device or emulator).
 4. **Unit tests for the new classes.** Only `SyncEventBus` has its own tests; everything else in
    `:feature:mail:sync:internal` relies on the 105 scenarios. Candidates with logic worth pinning: `ServerErrorNotifier`
@@ -135,12 +137,9 @@ first (the connection is metered: build the list of what's missing, then ask the
 - **Fetching dependencies:** this checkout's `local.properties` sets `useChinaMirrors=true`, so a plain `./gradlew`
   uses the mirrors, which hold incomplete copies of some artifacts (e.g. `com.github.gmazzo.buildconfig:plugin`).
   Fetch with `-PuseChinaMirrors=false`.
-- **Not run offline:** `:legacy:ui:legacy` unit tests (Robolectric wants an Android SDK jar that isn't cached) and
-  `:feature:navigation:drawer:dropdown` unit tests (`ui-test-junit4` isn't cached).
-- **Not run offline (step 3):** `:legacy:message` unit tests (same `error_prone_annotations` gap as above).
-- **Stale ProGuard rule:** `app-thunderbird` and `app-k9mail` `proguard-rules.pro` still keep
-  `com.fsck.k9.controller.MessagingControllerCommands$*`, which no longer exists (the pending commands are
-  `com.fsck.k9.controller.Pending*` with Moshi's generated adapters since step 1). Left alone; check a release build
-  before removing it.
+- **Robolectric SDK jars** aren't fetched by Gradle: Robolectric downloads them when a test first needs one, and
+  it doesn't use the HTTP proxy, so the download stalls. `:legacy:ui:legacy` needs SDK 31
+  (`org.robolectric:android-all-instrumented:12-robolectric-7732740-i7`); it was fetched into `~/.m2` with `curl
+  --proxy`.
 - **Wake lock tag:** the manual mail check still uses the tag `K9 MessagingController.checkMail`, unchanged on
   purpose.
