@@ -84,6 +84,42 @@ Until it's deleted it reaches the engine through temporary seam interfaces in `l
   did. Under the harness, WorkManager runs coroutine workers on the configured `SynchronousExecutor`, so work still
   runs inside the test driver's calls. Comments in `UpgradeDatabaseActivity` and `ScenarioApplication` updated.
   Suite: 105/105. Slice 4 is done.
+- **Cleanup (done):** deleted what the branches left unused: `MutableBoolean`, the Java wrapper
+  `OutboxFolderManager.hasPendingMessagesSync`, the test stub `StubLocalDeleteOperationDecider`, and `legacy:core`'s
+  test dependency on `:feature:notification:testing` (`FakeNotificationManager` stays in that module: it's the fake
+  for a public API). Code that was already unused on `main` was left alone (see "Next session"). Suite: 105/105.
+
+## Next session
+
+The switchover is done; these are the checks and decisions left, roughly in order. Several need dependencies fetched
+first (the connection is metered: build the list of what's missing, then ask the user to fetch it with
+`-PuseChinaMirrors=false`).
+
+1. **Release builds.** Nothing on these branches was built with R8. Run `assembleRelease` (or the closest variant
+   that doesn't need signing keys) for `app-thunderbird` and `app-k9mail`. Then remove the stale ProGuard rule (see
+   "Open items") and build again.
+2. **Code coverage.** `legacy:core` declares minimums (41 % branch, 46 % line), checked only with coverage enabled:
+   `./gradlew -PcodeCoverageDisabled=false :legacy:core:koverVerify`. `MessagingControllerTest` (458 lines) was
+   deleted together with the code it covered, so the numbers may have moved either way. If they drop below the
+   minimum, discuss with the user before lowering them.
+3. **Tests that weren't run:** unit tests of `:legacy:message`, `:legacy:ui:legacy` and
+   `:feature:navigation:drawer:dropdown` (dependencies not cached, see "Open items"); the full `./gradlew lint`;
+   `connectedAndroidTest` (needs a device or emulator).
+4. **Unit tests for the new classes.** Only `SyncEventBus` has its own tests; everything else in
+   `:feature:mail:sync:internal` relies on the 105 scenarios. Candidates with logic worth pinning: `ServerErrorNotifier`
+   (feature flag combinations; `FakeNotificationManager` exists for it), `PendingCommandProcessor`, the delete policy
+   branches in `DefaultMessageDeleteRepository`, the send-state handling in `DefaultOutboxSender`. Most of them work
+   on `LocalStore`/`LocalFolder`, which have no fakes, so this may need a Robolectric store like `legacy:core`'s tests.
+5. **`MessageListCache`:** the deferred decision in "Open items".
+6. **Pre-existing dead code (not from these branches, left alone):** on `main`, nothing called
+   `MessagingController.clearCertificateErrorNotifications`, so the `clearCertificateErrorNotifications` methods of
+   `NotificationController` and `CertificateErrorNotificationController` are unused outside tests: the app never
+   clears certificate error notifications. Possibly a missing feature rather than dead code; ask before deleting.
+   Also unused on `main` already, except by its own test: `legacy/core/.../controller/UidReverseComparator.java` (the
+   IMAP backend has its own).
+7. **Publishing:** nothing is pushed. This branch is stacked on `doug-scenario-harness`, so that one goes first (or
+   both together). Pull request descriptions must list the Gradle commands run, what wasn't run and why, and disclose
+   AI assistance (`AGENTS.md`).
 
 ## Open items
 
@@ -108,4 +144,3 @@ Until it's deleted it reaches the engine through temporary seam interfaces in `l
   before removing it.
 - **Wake lock tag:** the manual mail check still uses the tag `K9 MessagingController.checkMail`, unchanged on
   purpose.
-- **Unused helper:** `com.fsck.k9.helper.MutableBoolean` was only used by the controller.
