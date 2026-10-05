@@ -349,6 +349,25 @@ class FaultProxyTest {
     }
 
     @Test
+    fun `afterBytes counts responses made up by the proxy`() {
+        testSubject.apply(
+            networkRules {
+                imap.onCommand("NOOP").beforeServerSees { respond("NO busy") }
+                afterBytes(25, Direction.DOWNSTREAM) { disconnect() }
+            },
+        )
+        val client = connect()
+
+        client.send("a1 NOOP\r\n")
+        val received = client.readToEnd()
+
+        assertThat(String(received)).isEqualTo("a1 NO bu")
+        val transcript = awaitTranscript("closed: disconnected by rule")
+        assertThat(transcript).contains("!! disconnect (rule: afterBytes 25 DOWNSTREAM) - after 25 bytes to client")
+        assertThat(transcript).contains("25 bytes to client)")
+    }
+
+    @Test
     fun `latency delays both directions`() {
         val client = connect()
         testSubject.apply(networkRules { latency(DELAY) })

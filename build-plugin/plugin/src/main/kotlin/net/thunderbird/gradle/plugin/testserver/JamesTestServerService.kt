@@ -91,11 +91,28 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
         return File(javaHome, "bin/$executableName")
     }
 
+    /**
+     * The free ports are found by binding to port 0 and closing the socket again, so another process can take one
+     * before James binds it. In that case James is started again on fresh ports, up to [MAX_START_ATTEMPTS] times.
+     */
     private fun start(): RunningServer {
         val workDir = parameters.workDirectory.get().asFile
         val pidFile = File(workDir.parentFile, "${workDir.name}.pid")
         stopStaleServer(pidFile)
 
+        var attempt = 1
+        while (true) {
+            try {
+                return startOnce(workDir, pidFile)
+            } catch (e: PortInUseException) {
+                if (attempt == MAX_START_ATTEMPTS) throw e
+                logger.lifecycle("${e.message}; starting Apache James again on other ports")
+                attempt++
+            }
+        }
+    }
+
+    private fun startOnce(workDir: File, pidFile: File): RunningServer {
         workDir.deleteRecursively()
         val confDir = File(workDir, "conf").apply { mkdirs() }
 
@@ -145,6 +162,7 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
         val server = RunningServer(
             process = process,
             pidFile = pidFile,
+            adminPort = webAdminPort,
             endpoint = TestServerEndpoint(
                 imapHost = LOOPBACK,
                 imapPort = imapPort,
@@ -171,6 +189,7 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
         var lastProblem = "not checked yet"
 
         while (System.currentTimeMillis() < deadline) {
+            checkPortsBound(server, logFile)
             if (!server.process.isAlive) {
                 throw GradleException(
                     "Apache James exited during startup with code ${server.process.exitValue()}.\n" +
@@ -189,6 +208,18 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
         throw GradleException(
             "Apache James didn't become ready within ${parameters.startupTimeoutSeconds.get()}s ($lastProblem).\n" +
                 "Last lines of $logFile:\n${tail(logFile)}",
+        )
+    }
+
+    /**
+     * Throws [PortInUseException] if James logged that it couldn't bind one of its ports. James may keep running in
+     * that case, so this doesn't wait for it to exit.
+     */
+    private fun checkPortsBound(server: RunningServer, logFile: File) {
+        if (!logFile.exists() || logFile.readLines().none { BIND_FAILURE in it }) return
+        throw PortInUseException(
+            "Apache James couldn't bind IMAP port ${server.endpoint.imapPort} or WebAdmin port " +
+                "${server.adminPort}; another process took it",
         )
     }
 
@@ -279,6 +310,7 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
     private inner class RunningServer(
         val process: Process,
         val pidFile: File,
+        val adminPort: Int,
         val endpoint: TestServerEndpoint,
     ) {
         fun stop() {
@@ -304,6 +336,8 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
         descendants.filter { it.isAlive }.forEach { it.destroyForcibly() }
     }
 
+    private class PortInUseException(message: String) : GradleException(message)
+
     private companion object {
         const val MAIN_CLASS = "org.apache.james.MemoryJamesServerMain"
 
@@ -312,6 +346,12 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
 
         /** Marks our process so a stale one can be recognised safely from its command line. */
         const val PROCESS_MARKER = "-Dthunderbird.testserver=james"
+
+        const val MAX_START_ATTEMPTS = 3
+
+        // TODO(verify): IMAP (Netty) and WebAdmin (Jetty) both log this BindException message when the port is taken.
+        /** Text of the `java.net.BindException` James logs when a port is already taken. */
+        const val BIND_FAILURE = "Address already in use"
 
         const val POLL_INTERVAL_MILLIS = 500L
         const val SOCKET_TIMEOUT_MILLIS = 2_000

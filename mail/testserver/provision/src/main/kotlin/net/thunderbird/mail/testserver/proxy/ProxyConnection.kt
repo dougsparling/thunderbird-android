@@ -199,12 +199,15 @@ internal class ProxyConnection(
         /**
          * Writes [bytes] to this pump's destination between two statements, never in the middle of one, e.g. a
          * response the proxy makes up while the server is sending a FETCH response with a literal.
+         *
+         * The bytes count towards this direction's forwarded bytes, so `afterBytes` rules and throttling see them like
+         * forwarded data.
          */
         fun inject(bytes: ByteArray) {
             writeLock.withLock {
                 while (midStatement && !terminating.get()) statementEnded.await(INJECT_WAIT_MS, TimeUnit.MILLISECONDS)
                 if (terminating.get()) throw ConnectionEnded()
-                output.write(bytes)
+                write(bytes)
                 output.flush()
             }
         }
