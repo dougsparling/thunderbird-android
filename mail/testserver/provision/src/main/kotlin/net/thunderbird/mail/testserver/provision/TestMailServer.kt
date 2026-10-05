@@ -13,6 +13,7 @@ import net.thunderbird.mail.testserver.fixture.UserFixture
  * - `testserver.domain`: mail domain that test users are created in
  * - `testserver.smtp`: `host:port` for plaintext SMTP with AUTH, if the server offers it
  * - `testserver.pop3`: `host:port` for plaintext POP3, if the server offers it
+ * - `testserver.imaps-untrusted`: `host:port` for IMAP over TLS with a certificate nobody trusts, if offered
  */
 data class TestServerConfig(
     val kind: String,
@@ -22,6 +23,7 @@ data class TestServerConfig(
     val domain: String,
     val smtp: ServerEndpoint? = null,
     val pop3: ServerEndpoint? = null,
+    val untrustedImaps: ServerEndpoint? = null,
 ) {
     companion object {
         fun fromSystemProperties(): TestServerConfig = parseTestServerConfig(System::getProperty)

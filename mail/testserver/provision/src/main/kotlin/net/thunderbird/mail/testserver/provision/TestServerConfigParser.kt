@@ -9,6 +9,7 @@ private const val ADMIN = "testserver.admin"
 private const val DOMAIN = "testserver.domain"
 private const val SMTP = "testserver.smtp"
 private const val POP3 = "testserver.pop3"
+private const val IMAPS_UNTRUSTED = "testserver.imaps-untrusted"
 private const val MAX_PORT = 65535
 private val DOMAIN_PATTERN = Regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$")
 
@@ -30,6 +31,7 @@ internal fun parseTestServerConfig(property: (String) -> String?): TestServerCon
     }
     val smtp = parseOptionalEndpoint(SMTP, property, errors)
     val pop3 = parseOptionalEndpoint(POP3, property, errors)
+    val untrustedImaps = parseOptionalEndpoint(IMAPS_UNTRUSTED, property, errors)
     val adminUrl = property(ADMIN)?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
         value.takeIf { isHttpUrl(it) } ?: null.also { errors += "$ADMIN must be an http(s) URL, was '$value'" }
     }
@@ -48,6 +50,7 @@ internal fun parseTestServerConfig(property: (String) -> String?): TestServerCon
         domain = checkNotNull(domain),
         smtp = smtp,
         pop3 = pop3,
+        untrustedImaps = untrustedImaps,
     )
 }
 

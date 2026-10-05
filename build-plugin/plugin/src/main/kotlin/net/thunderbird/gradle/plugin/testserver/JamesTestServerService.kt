@@ -87,7 +87,7 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
             )
         }
         val javaHome = File(System.getProperty("java.home"))
-        val executableName = if (System.getProperty("os.name").startsWith("Windows")) "java.exe" else "java"
+        val executableName = if (isWindows()) "java.exe" else "java"
         return File(javaHome, "bin/$executableName")
     }
 
@@ -120,6 +120,7 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
         val imapPort = findFreePort()
         val smtpPort = findFreePort()
         val pop3Port = findFreePort()
+        val imapsPort = findFreePort()
         val webAdminPort = findFreePort()
         copyConfiguration(
             source = parameters.configDirectory.get().asFile,
@@ -128,10 +129,14 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
                 "@IMAP_PORT@" to imapPort.toString(),
                 "@SMTP_PORT@" to smtpPort.toString(),
                 "@POP3_PORT@" to pop3Port.toString(),
+                "@IMAPS_PORT@" to imapsPort.toString(),
+                "@KEYSTORE_SECRET@" to KEYSTORE_SECRET,
                 "@WEBADMIN_PORT@" to webAdminPort.toString(),
                 "@DOMAIN@" to domain,
             ),
         )
+
+        generateUntrustedKeystore(File(confDir, KEYSTORE_FILE_NAME))
 
         val logFile = File(workDir, "james.log")
         val argFile = File(workDir, "java.args")
@@ -175,6 +180,7 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
                 imapPort = imapPort,
                 smtpPort = smtpPort,
                 pop3Port = pop3Port,
+                imapsPort = imapsPort,
                 adminUrl = "http://$LOOPBACK:$webAdminPort",
                 domain = domain,
             ),
@@ -190,6 +196,31 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
 
         logger.lifecycle("Apache James test server is ready. Log: $logFile")
         return server
+    }
+
+    /**
+     * Creates a self-signed certificate for the IMAPS port. No device trusts it, which is the point: scenarios use the
+     * port to see how the app handles an untrusted server certificate.
+     */
+    private fun generateUntrustedKeystore(keystore: File) {
+        val keytool = File(daemonJavaExecutable().parentFile, if (isWindows()) "keytool.exe" else "keytool")
+        val process = ProcessBuilder(
+            keytool.absolutePath,
+            "-genkeypair",
+            "-alias", "james",
+            "-keyalg", "RSA",
+            "-keysize", "2048",
+            "-validity", "3650",
+            "-dname", "CN=untrusted.scenario.test",
+            "-storetype", "PKCS12",
+            "-keystore", keystore.absolutePath,
+            "-storepass", KEYSTORE_SECRET,
+            "-keypass", KEYSTORE_SECRET,
+        ).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().readText()
+        if (!process.waitFor(KEYTOOL_TIMEOUT_SECONDS, TimeUnit.SECONDS) || process.exitValue() != 0) {
+            throw GradleException("Couldn't create the test server's TLS keystore with keytool: $output")
+        }
     }
 
     private fun awaitReady(server: RunningServer, logFile: File) {
@@ -346,6 +377,8 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
         descendants.filter { it.isAlive }.forEach { it.destroyForcibly() }
     }
 
+    private fun isWindows() = System.getProperty("os.name").startsWith("Windows")
+
     private class PortInUseException(message: String) : GradleException(message)
 
     private companion object {
@@ -358,6 +391,11 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
         const val PROCESS_MARKER = "-Dthunderbird.testserver=james"
 
         const val MAX_START_ATTEMPTS = 3
+
+        /** Protects nothing: the keystore holds a throwaway certificate for a test server on loopback. */
+        const val KEYSTORE_SECRET = "scenario-tests"
+        const val KEYSTORE_FILE_NAME = "untrusted-keystore.p12"
+        const val KEYTOOL_TIMEOUT_SECONDS = 60L
 
         // TODO(verify): the Netty servers and WebAdmin (Jetty) all log this BindException message when the port is taken.
         /** Text of the `java.net.BindException` James logs when a port is already taken. */
@@ -391,6 +429,8 @@ data class TestServerEndpoint(
     val imapPort: Int,
     val smtpPort: Int,
     val pop3Port: Int,
+    /** IMAP over TLS with a self-signed certificate nobody trusts. */
+    val imapsPort: Int,
     val adminUrl: String,
     val domain: String,
 )
