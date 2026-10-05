@@ -104,7 +104,7 @@ internal class DefaultMailSynchronizer(
     override suspend fun syncPeriodically(accountId: AccountId): Boolean {
         val account = accounts.get(accountId)
         val failures = FolderSyncFailures()
-        val done = CompletableDeferred<Unit>()
+        val result = CompletableDeferred<Boolean>()
         startCheckMail(
             account,
             ignoreLastCheckedTime = false,
@@ -112,13 +112,17 @@ internal class DefaultMailSynchronizer(
             notify = true,
             failures = failures,
         ) {
-            done.complete(Unit)
+            // Recorded when the check finishes, even if the caller stopped waiting for it.
+            result.complete(recordPeriodicSync(account, failures))
         }
 
         logger.verbose(TAG) { "syncPeriodically($account) waiting for the mail check to finish" }
-        done.await()
-        logger.verbose(TAG) { "syncPeriodically($account) mail check finished" }
+        return result.await().also {
+            logger.verbose(TAG) { "syncPeriodically($account) mail check finished" }
+        }
+    }
 
+    private fun recordPeriodicSync(account: LegacyAccountDto, failures: FolderSyncFailures): Boolean {
         val success = !failures.anyFailed
         if (success) {
             val now = clock.now().toEpochMilliseconds()
