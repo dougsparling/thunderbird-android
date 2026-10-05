@@ -48,7 +48,6 @@ import org.gradle.process.CommandLineArgumentProvider
 class ScenarioTestPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         with(target) {
-
             val extension = extensions.create<ScenarioTestExtension>("scenarioTests").apply {
                 packageName.convention("")
                 defaultTestTask.convention("test")

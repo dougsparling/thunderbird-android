@@ -398,6 +398,7 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
         const val KEYTOOL_TIMEOUT_SECONDS = 60L
 
         // TODO(verify): the Netty servers and WebAdmin (Jetty) all log this BindException message when the port is taken.
+
         /** Text of the `java.net.BindException` James logs when a port is already taken. */
         const val BIND_FAILURE = "Address already in use"
 
