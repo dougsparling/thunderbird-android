@@ -1,5 +1,6 @@
 package com.fsck.k9.controller
 
+import com.squareup.moshi.JsonClass
 import net.thunderbird.core.common.mail.Flag
 
 internal const val COMMAND_APPEND = "append"
@@ -18,16 +19,18 @@ internal const val COMMAND_EMPTY_TRASH = "empty_trash"
  *
  * Commands are stored in the account's `pending_commands` table: [commandName] in the `command` column and the
  * command's properties as JSON (see [PendingCommandSerializer]) in the `data` column. Property names are part of that
- * format.
+ * format; adding a property needs a default value, so commands stored before can still be read.
  */
 sealed class PendingCommand {
     /** The command's row in the `pending_commands` table; set when the command is read from there. */
+    @Transient
     @JvmField
     var databaseId: Long = 0
 
     abstract val commandName: String
 }
 
+@JsonClass(generateAdapter = true)
 class PendingMoveOrCopy internal constructor(
     @JvmField val srcFolderId: Long,
     @JvmField val destFolderId: Long,
@@ -53,6 +56,7 @@ class PendingMoveOrCopy internal constructor(
     }
 }
 
+@JsonClass(generateAdapter = true)
 class PendingMoveAndMarkAsRead internal constructor(
     @JvmField val srcFolderId: Long,
     @JvmField val destFolderId: Long,
@@ -70,6 +74,7 @@ class PendingMoveAndMarkAsRead internal constructor(
     }
 }
 
+@JsonClass(generateAdapter = true)
 class PendingEmptySpam internal constructor() : PendingCommand() {
     override val commandName: String
         get() = COMMAND_EMPTY_SPAM
@@ -80,6 +85,7 @@ class PendingEmptySpam internal constructor() : PendingCommand() {
     }
 }
 
+@JsonClass(generateAdapter = true)
 class PendingEmptyTrash internal constructor() : PendingCommand() {
     override val commandName: String
         get() = COMMAND_EMPTY_TRASH
@@ -90,6 +96,7 @@ class PendingEmptyTrash internal constructor() : PendingCommand() {
     }
 }
 
+@JsonClass(generateAdapter = true)
 class PendingSetFlag internal constructor(
     @JvmField val folderId: Long,
     @JvmField val newState: Boolean,
@@ -108,6 +115,7 @@ class PendingSetFlag internal constructor(
     }
 }
 
+@JsonClass(generateAdapter = true)
 class PendingAppend internal constructor(
     @JvmField val folderId: Long,
     @JvmField val uid: String,
@@ -121,6 +129,7 @@ class PendingAppend internal constructor(
     }
 }
 
+@JsonClass(generateAdapter = true)
 class PendingReplace internal constructor(
     @JvmField val folderId: Long,
     @JvmField val uploadMessageId: Long,
@@ -136,6 +145,7 @@ class PendingReplace internal constructor(
     }
 }
 
+@JsonClass(generateAdapter = true)
 class PendingMarkAllAsRead internal constructor(
     @JvmField val folderId: Long,
 ) : PendingCommand() {
@@ -148,6 +158,7 @@ class PendingMarkAllAsRead internal constructor(
     }
 }
 
+@JsonClass(generateAdapter = true)
 class PendingDelete internal constructor(
     @JvmField val folderId: Long,
     @JvmField val uids: List<String>,
@@ -164,6 +175,7 @@ class PendingDelete internal constructor(
     }
 }
 
+@JsonClass(generateAdapter = true)
 class PendingExpunge internal constructor(
     @JvmField val folderId: Long,
 ) : PendingCommand() {

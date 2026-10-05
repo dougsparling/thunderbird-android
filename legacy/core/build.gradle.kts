@@ -1,6 +1,7 @@
 plugins {
     id(ThunderbirdPlugins.Library.android)
     alias(libs.plugins.kotlin.parcelize)
+    alias(libs.plugins.ksp)
 }
 
 dependencies {
@@ -44,6 +45,7 @@ dependencies {
     implementation(libs.androidx.localbroadcastmanager)
     implementation(libs.jsoup)
     implementation(libs.moshi)
+    ksp(libs.moshi.kotlin.codegen)
     implementation(libs.timber)
     implementation(libs.mime4j.core)
     implementation(libs.mime4j.dom)

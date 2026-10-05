@@ -6,6 +6,8 @@ import assertk.assertThat
 import assertk.assertions.isEqualTo
 import assertk.assertions.isInstanceOf
 import assertk.assertions.isNull
+import assertk.assertions.isTrue
+import assertk.assertions.doesNotContain
 import assertk.assertions.prop
 import com.fsck.k9.K9RobolectricTest
 import net.thunderbird.core.common.mail.Flag
@@ -14,33 +16,57 @@ import org.junit.Test
 class PendingCommandSerializerTest : K9RobolectricTest() {
     private val testSubject = PendingCommandSerializer.getInstance()
 
+    // The JSON in these tests is what versions before the Kotlin port wrote: Moshi's reflection-based adapter for
+    // the Java command classes, with fields in alphabetical order and `databaseId` included.
+
     @Test
-    fun `serialize() writes fields in alphabetical order, including databaseId`() {
+    fun `unserialize() reads flag commands stored by earlier versions`() {
         // Arrange
-        val command = PendingSetFlag.create(FOLDER_ID, true, Flag.SEEN, listOf("uid_1", "uid_2"))
+        val json = """{"databaseId":0,"flag":"SEEN","folderId":42,"newState":true,"uids":["uid_1","uid_2"]}"""
 
         // Act
-        val json = testSubject.serialize(command)
+        val command = testSubject.unserialize(DATABASE_ID, COMMAND_SET_FLAG, json)
 
         // Assert
-        assertThat(json).isEqualTo(
-            """{"databaseId":0,"flag":"SEEN","folderId":42,"newState":true,"uids":["uid_1","uid_2"]}""",
-        )
+        assertThat(command).isInstanceOf<PendingSetFlag>().all {
+            prop("databaseId") { it.databaseId }.isEqualTo(DATABASE_ID)
+            prop("folderId") { it.folderId }.isEqualTo(FOLDER_ID)
+            prop("newState") { it.newState }.isTrue()
+            prop("flag") { it.flag }.isEqualTo(Flag.SEEN)
+            prop("uids") { it.uids }.isEqualTo(listOf("uid_1", "uid_2"))
+        }
     }
 
     @Test
-    fun `serialize() leaves out null fields`() {
+    fun `unserialize() reads move commands stored by earlier versions`() {
         // Arrange
-        val command = PendingMoveOrCopy.create(FOLDER_ID, DEST_FOLDER_ID, true, UID_MAP)
+        val json = """{"databaseId":0,"destFolderId":23,"isCopy":true,"newUidMap":{"uid_1":"uid_other_1",""" +
+            """"uid_2":"uid_other_2"},"srcFolderId":42}"""
+
+        // Act
+        val command = testSubject.unserialize(DATABASE_ID, COMMAND_MOVE_OR_COPY, json)
+
+        // Assert
+        assertThat(command).isInstanceOf<PendingMoveOrCopy>().all {
+            prop("srcFolderId") { it.srcFolderId }.isEqualTo(FOLDER_ID)
+            prop("destFolderId") { it.destFolderId }.isEqualTo(DEST_FOLDER_ID)
+            prop("isCopy") { it.isCopy }.isTrue()
+            prop("uids") { it.uids }.isNull()
+            prop("newUidMap") { it.newUidMap }.isEqualTo(UID_MAP)
+        }
+    }
+
+    @Test
+    fun `serialize() leaves out databaseId and null fields`() {
+        // Arrange
+        val command = PendingMoveOrCopy.create(FOLDER_ID, DEST_FOLDER_ID, true, UID_MAP).apply { databaseId = 7 }
 
         // Act
         val json = testSubject.serialize(command)
 
         // Assert
-        assertThat(json).isEqualTo(
-            """{"databaseId":0,"destFolderId":23,"isCopy":true,"newUidMap":{"uid_1":"uid_other_1",""" +
-                """"uid_2":"uid_other_2"},"srcFolderId":42}""",
-        )
+        assertThat(json).doesNotContain("databaseId")
+        assertThat(json).doesNotContain("uids")
     }
 
     @Test
