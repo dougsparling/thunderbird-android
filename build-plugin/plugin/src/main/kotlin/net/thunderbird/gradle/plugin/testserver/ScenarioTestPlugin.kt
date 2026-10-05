@@ -36,7 +36,8 @@ import org.gradle.process.CommandLineArgumentProvider
  *
  * Only then is the test mail server wired in. By default an Apache James server is started on first use by
  * [JamesTestServerService] and stopped when the build finishes. To use an already running server instead, pass
- * `-Ptestserver.imap=host:port -Ptestserver.domain=... [-Ptestserver.admin=url] [-Ptestserver.kind=james]`.
+ * `-Ptestserver.imap=host:port -Ptestserver.domain=... [-Ptestserver.admin=url] [-Ptestserver.smtp=host:port]
+ * [-Ptestserver.pop3=host:port] [-Ptestserver.kind=james]`.
  *
  * Test JVMs receive the endpoint as `testserver.*` system properties, computed only when the tests actually start.
  *
@@ -159,6 +160,8 @@ class ScenarioTestPlugin : Plugin<Project> {
                 add("-Dtestserver.imap=$imap")
                 add("-Dtestserver.domain=$domain")
                 providers.gradleProperty("testserver.admin").orNull?.let { add("-Dtestserver.admin=$it") }
+                providers.gradleProperty("testserver.smtp").orNull?.let { add("-Dtestserver.smtp=$it") }
+                providers.gradleProperty("testserver.pop3").orNull?.let { add("-Dtestserver.pop3=$it") }
             },
         )
     }
@@ -214,6 +217,8 @@ internal class JamesServerArguments(
         return listOf(
             "-Dtestserver.kind=james",
             "-Dtestserver.imap=${endpoint.imapHost}:${endpoint.imapPort}",
+            "-Dtestserver.smtp=${endpoint.imapHost}:${endpoint.smtpPort}",
+            "-Dtestserver.pop3=${endpoint.imapHost}:${endpoint.pop3Port}",
             "-Dtestserver.admin=${endpoint.adminUrl}",
             "-Dtestserver.domain=${endpoint.domain}",
         )

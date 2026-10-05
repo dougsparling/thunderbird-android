@@ -7,6 +7,8 @@ private const val KIND = "testserver.kind"
 private const val IMAP = "testserver.imap"
 private const val ADMIN = "testserver.admin"
 private const val DOMAIN = "testserver.domain"
+private const val SMTP = "testserver.smtp"
+private const val POP3 = "testserver.pop3"
 private const val MAX_PORT = 65535
 private val DOMAIN_PATTERN = Regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$")
 
@@ -26,6 +28,13 @@ internal fun parseTestServerConfig(property: (String) -> String?): TestServerCon
     val domain = required(DOMAIN)?.lowercase()?.let { value ->
         value.takeIf { DOMAIN_PATTERN.matches(it) } ?: null.also { errors += "$DOMAIN is not a valid domain: '$value'" }
     }
+    fun optionalEndpoint(name: String): ServerEndpoint? =
+        property(name)?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
+            parseHostAndPort(value)?.let { (host, port) -> ServerEndpoint(host, port) }
+                ?: null.also { errors += "$name must be host:port, was '$value'" }
+        }
+    val smtp = optionalEndpoint(SMTP)
+    val pop3 = optionalEndpoint(POP3)
     val adminUrl = property(ADMIN)?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
         value.takeIf { isHttpUrl(it) } ?: null.also { errors += "$ADMIN must be an http(s) URL, was '$value'" }
     }
@@ -42,6 +51,8 @@ internal fun parseTestServerConfig(property: (String) -> String?): TestServerCon
         imapPort = hostAndPort.second,
         adminUrl = adminUrl?.trimEnd('/'),
         domain = checkNotNull(domain),
+        smtp = smtp,
+        pop3 = pop3,
     )
 }
 

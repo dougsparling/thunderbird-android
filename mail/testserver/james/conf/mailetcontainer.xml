@@ -1,7 +1,8 @@
 <?xml version="1.0"?>
 <!--
-  Minimal mail processing. Mail only enters over IMAP APPEND (SMTP and LMTP are disabled), so the processors just need
-  to be valid. James 3.9 refuses to start unless the transport processor removes the Bcc header.
+  Minimal mail processing. Test mail is seeded over IMAP APPEND; mail the app sends over SMTP is delivered to local
+  users' INBOX and dropped for anyone else. James 3.9 refuses to start unless the transport processor removes the Bcc
+  header.
 -->
 <mailetcontainer enableJmx="false">
     <context>

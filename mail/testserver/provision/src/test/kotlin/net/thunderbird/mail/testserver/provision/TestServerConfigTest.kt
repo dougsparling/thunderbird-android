@@ -20,6 +20,8 @@ class TestServerConfigTest {
             "testserver.imap" to "localhost:1143",
             "testserver.admin" to "http://localhost:8000/",
             "testserver.domain" to "Example.org",
+            "testserver.smtp" to "localhost:1025",
+            "testserver.pop3" to "localhost:1110",
         )
 
         // Act
@@ -33,6 +35,8 @@ class TestServerConfigTest {
                 imapPort = 1143,
                 adminUrl = "http://localhost:8000",
                 domain = "example.org",
+                smtp = ServerEndpoint("localhost", 1025),
+                pop3 = ServerEndpoint("localhost", 1110),
             ),
         )
     }
@@ -53,6 +57,8 @@ class TestServerConfigTest {
         assertThat(config.imapHost).isEqualTo("::1")
         assertThat(config.imapPort).isEqualTo(143)
         assertThat(config.adminUrl).isEqualTo(null)
+        assertThat(config.smtp).isEqualTo(null)
+        assertThat(config.pop3).isEqualTo(null)
     }
 
     @Test
@@ -61,6 +67,7 @@ class TestServerConfigTest {
         val properties = mapOf(
             "testserver.imap" to "localhost",
             "testserver.admin" to "ftp://x",
+            "testserver.smtp" to "nowhere",
         )
 
         // Act & Assert
@@ -72,6 +79,7 @@ class TestServerConfigTest {
                 contains("testserver.imap must be host:port, was 'localhost'")
                 contains("testserver.domain is not set")
                 contains("testserver.admin must be an http(s) URL")
+                contains("testserver.smtp must be host:port, was 'nowhere'")
                 contains("Gradle")
             }
     }

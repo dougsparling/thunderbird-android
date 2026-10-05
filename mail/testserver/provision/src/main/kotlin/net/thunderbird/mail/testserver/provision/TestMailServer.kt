@@ -11,6 +11,8 @@ import net.thunderbird.mail.testserver.fixture.UserFixture
  * - `testserver.imap`: `host:port` for plaintext IMAP
  * - `testserver.admin`: base URL of the server's admin API, if it has one
  * - `testserver.domain`: mail domain that test users are created in
+ * - `testserver.smtp`: `host:port` for plaintext SMTP with AUTH, if the server offers it
+ * - `testserver.pop3`: `host:port` for plaintext POP3, if the server offers it
  */
 data class TestServerConfig(
     val kind: String,
@@ -18,11 +20,16 @@ data class TestServerConfig(
     val imapPort: Int,
     val adminUrl: String?,
     val domain: String,
+    val smtp: ServerEndpoint? = null,
+    val pop3: ServerEndpoint? = null,
 ) {
     companion object {
         fun fromSystemProperties(): TestServerConfig = parseTestServerConfig(System::getProperty)
     }
 }
+
+/** A host and port a protocol server listens on. */
+data class ServerEndpoint(val host: String, val port: Int)
 
 enum class ServerCapability {
     SPECIAL_USE_CREATE,

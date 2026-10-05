@@ -118,12 +118,16 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
 
         val domain = parameters.domain.get()
         val imapPort = findFreePort()
+        val smtpPort = findFreePort()
+        val pop3Port = findFreePort()
         val webAdminPort = findFreePort()
         copyConfiguration(
             source = parameters.configDirectory.get().asFile,
             target = confDir,
             replacements = mapOf(
                 "@IMAP_PORT@" to imapPort.toString(),
+                "@SMTP_PORT@" to smtpPort.toString(),
+                "@POP3_PORT@" to pop3Port.toString(),
                 "@WEBADMIN_PORT@" to webAdminPort.toString(),
                 "@DOMAIN@" to domain,
             ),
@@ -151,7 +155,10 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
             MAIN_CLASS,
         )
 
-        logger.lifecycle("Starting Apache James test server (IMAP port $imapPort, WebAdmin port $webAdminPort)")
+        logger.lifecycle(
+            "Starting Apache James test server (IMAP port $imapPort, SMTP port $smtpPort, POP3 port $pop3Port, " +
+                "WebAdmin port $webAdminPort)",
+        )
         val process = ProcessBuilder(command)
             .directory(workDir)
             .redirectErrorStream(true)
@@ -166,6 +173,8 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
             endpoint = TestServerEndpoint(
                 imapHost = LOOPBACK,
                 imapPort = imapPort,
+                smtpPort = smtpPort,
+                pop3Port = pop3Port,
                 adminUrl = "http://$LOOPBACK:$webAdminPort",
                 domain = domain,
             ),
@@ -218,8 +227,9 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
     private fun checkPortsBound(server: RunningServer, logFile: File) {
         if (!logFile.exists() || logFile.readLines().none { BIND_FAILURE in it }) return
         throw PortInUseException(
-            "Apache James couldn't bind IMAP port ${server.endpoint.imapPort} or WebAdmin port " +
-                "${server.adminPort}; another process took it",
+            "Apache James couldn't bind one of its ports (IMAP ${server.endpoint.imapPort}, SMTP " +
+                "${server.endpoint.smtpPort}, POP3 ${server.endpoint.pop3Port}, WebAdmin ${server.adminPort}); " +
+                "another process took it",
         )
     }
 
@@ -349,7 +359,7 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
 
         const val MAX_START_ATTEMPTS = 3
 
-        // TODO(verify): IMAP (Netty) and WebAdmin (Jetty) both log this BindException message when the port is taken.
+        // TODO(verify): the Netty servers and WebAdmin (Jetty) all log this BindException message when the port is taken.
         /** Text of the `java.net.BindException` James logs when a port is already taken. */
         const val BIND_FAILURE = "Address already in use"
 
@@ -375,10 +385,12 @@ abstract class JamesTestServerService : BuildService<JamesTestServerService.Para
     }
 }
 
-/** Where the running test server can be reached. */
+/** Where the running test server can be reached. All protocols listen on [imapHost]. */
 data class TestServerEndpoint(
     val imapHost: String,
     val imapPort: Int,
+    val smtpPort: Int,
+    val pop3Port: Int,
     val adminUrl: String,
     val domain: String,
 )
