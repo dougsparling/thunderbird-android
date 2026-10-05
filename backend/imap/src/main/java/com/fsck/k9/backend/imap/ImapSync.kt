@@ -24,11 +24,15 @@ import kotlin.math.max
 import net.thunderbird.core.common.exception.rootCauseMessage
 import net.thunderbird.core.common.mail.Flag
 import net.thunderbird.legacy.logging.Log
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
+@OptIn(ExperimentalTime::class)
 internal class ImapSync(
     private val accountName: String,
     private val backendStorage: BackendStorage,
     private val imapStore: ImapStore,
+    private val clock: Clock = Clock.System,
 ) {
     suspend fun sync(folder: String, syncConfig: SyncConfig, listener: SyncListener) {
         synchronizeMailboxSynchronous(folder, syncConfig, listener)
@@ -227,7 +231,7 @@ internal class ImapSync(
 
             /* Notify listeners that we're finally done. */
 
-            backendFolder.setLastChecked(System.currentTimeMillis())
+            backendFolder.setLastChecked(clock.now().toEpochMilliseconds())
             backendFolder.setStatus(null)
 
             Log.d("Done synchronizing folder %s:%s @ %tc", accountName, folder, System.currentTimeMillis())
@@ -245,7 +249,7 @@ internal class ImapSync(
             if (backendFolder != null) {
                 try {
                     backendFolder.setStatus(rootMessage)
-                    backendFolder.setLastChecked(System.currentTimeMillis())
+                    backendFolder.setLastChecked(clock.now().toEpochMilliseconds())
                 } catch (e: Exception) {
                     Log.e(e, "Could not set last checked on folder %s:%s", accountName, folder)
                 }

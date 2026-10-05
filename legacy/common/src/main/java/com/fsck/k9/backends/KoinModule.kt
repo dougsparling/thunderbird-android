@@ -30,6 +30,7 @@ val backendsModule = module {
             context = get(),
             clientInfoAppName = get(named("ClientInfoAppName")),
             clientInfoAppVersion = get(named("ClientInfoAppVersion")),
+            clock = get(),
         )
     }
     single<SystemAlarmManager> { AndroidAlarmManager(context = get(), alarmManager = get()) }

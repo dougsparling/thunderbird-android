@@ -19,7 +19,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import net.thunderbird.core.common.mail.Flag
 import net.thunderbird.feature.mail.folder.api.FolderPathDelimiter
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
+@OptIn(ExperimentalTime::class)
 class ImapBackend(
     private val accountName: String,
     backendStorage: BackendStorage,
@@ -29,8 +32,9 @@ class ImapBackend(
     private val pushConfigProvider: ImapPushConfigProvider,
     private val smtpTransport: SmtpTransport,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    clock: Clock = Clock.System,
 ) : Backend {
-    private val imapSync = ImapSync(accountName, backendStorage, imapStore)
+    private val imapSync = ImapSync(accountName, backendStorage, imapStore, clock)
     private val commandRefreshFolderList = CommandRefreshFolderList(backendStorage, imapStore)
     private val commandSetFlag = CommandSetFlag(imapStore)
     private val commandMarkAllAsRead = CommandMarkAllAsRead(imapStore)

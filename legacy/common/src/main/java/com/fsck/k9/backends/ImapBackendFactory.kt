@@ -22,10 +22,13 @@ import net.thunderbird.core.android.account.Expunge
 import net.thunderbird.core.android.account.LegacyAccount
 import net.thunderbird.core.android.account.LegacyAccountManager
 import net.thunderbird.feature.account.AccountId
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 interface ImapBackendFactory : BackendFactory
 
 @Suppress("LongParameterList")
+@OptIn(ExperimentalTime::class)
 class DefaultImapBackendFactory(
     private val accountManager: LegacyAccountManager,
     private val powerManager: PowerManager,
@@ -35,6 +38,7 @@ class DefaultImapBackendFactory(
     private val context: Context,
     private val clientInfoAppName: String,
     private val clientInfoAppVersion: String,
+    private val clock: Clock = Clock.System,
 ) : ImapBackendFactory {
     override fun createBackend(accountId: AccountId): Backend {
         val account = accountManager.getAccount(accountId.toString()) ?: error("Account not found: $accountId")
@@ -53,6 +57,7 @@ class DefaultImapBackendFactory(
             idleRefreshManager,
             pushConfigProvider,
             smtpTransport,
+            clock = clock,
         )
     }
 

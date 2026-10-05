@@ -445,7 +445,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
                 account.setFolderPathDelimiter(folderPathDelimiter);
             }
 
-            long now = System.currentTimeMillis();
+            long now = clock.now().toEpochMilliseconds();
             Log.d("Folder list successfully refreshed @ %tc", now);
 
             account.setLastFolderListRefreshTime(now);
@@ -630,7 +630,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
 
     private void refreshFolderListIfStale(LegacyAccountDto account) {
         long lastFolderListRefresh = account.getLastFolderListRefreshTime();
-        long now = System.currentTimeMillis();
+        long now = clock.now().toEpochMilliseconds();
 
         if (lastFolderListRefresh > now || lastFolderListRefresh + FOLDER_LIST_STALENESS_THRESHOLD <= now) {
             Log.d("Last folder list refresh @ %tc. Refreshing now…", lastFolderListRefresh);
@@ -2371,7 +2371,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
 
         boolean success = !syncError.getValue();
         if (success) {
-            long now = System.currentTimeMillis();
+            long now = clock.now().toEpochMilliseconds();
             Log.v("Account %s successfully synced @ %tc", account, now);
             account.setLastSyncTime(now);
             preferences.saveAccount(account);
