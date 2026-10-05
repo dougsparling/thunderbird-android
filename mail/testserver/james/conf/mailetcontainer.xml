@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!--
+  Minimal mail processing. Test mail is seeded over IMAP APPEND; mail the app sends over SMTP is delivered to local
+  users' INBOX and dropped for anyone else. James 3.9 refuses to start unless the transport processor removes the Bcc
+  header.
+-->
+<mailetcontainer enableJmx="false">
+    <context>
+        <postmaster>postmaster@@DOMAIN@</postmaster>
+    </context>
+    <spooler>
+        <threads>1</threads>
+        <errorRepository>memory://var/mail/error/</errorRepository>
+    </spooler>
+    <processors>
+        <processor state="root" enableJmx="false">
+            <mailet match="All" class="ToProcessor">
+                <processor>transport</processor>
+            </mailet>
+        </processor>
+        <processor state="error" enableJmx="false">
+            <mailet match="All" class="ToRepository">
+                <repositoryPath>memory://var/mail/error/</repositoryPath>
+            </mailet>
+        </processor>
+        <processor state="transport" enableJmx="false">
+            <mailet match="All" class="RemoveMimeHeader">
+                <name>bcc</name>
+                <onMailetException>ignore</onMailetException>
+            </mailet>
+            <mailet match="RecipientIsLocal" class="LocalDelivery"/>
+            <mailet match="All" class="Null"/>
+        </processor>
+    </processors>
+</mailetcontainer>

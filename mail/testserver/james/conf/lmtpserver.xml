@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<lmtpservers>
+    <lmtpserver enabled="false">
+        <jmxName>lmtpserver</jmxName>
+        <bind>127.0.0.1:0</bind>
+    </lmtpserver>
+</lmtpservers>

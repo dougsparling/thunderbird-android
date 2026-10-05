@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!--
+  Plaintext SMTP with AUTH for scenario tests that send mail, bound to loopback only. The port is filled in by the
+  Gradle test server service. Tests reach it through a per-test fault proxy, so TLS stays off to keep the transcript
+  readable. Mail to local users is delivered to their INBOX (see mailetcontainer.xml); unknown local recipients are
+  rejected with a permanent 5xx error (ValidRcptHandler), which scenarios use to provoke permanent send failures.
+-->
+<smtpservers>
+    <smtpserver enabled="true">
+        <jmxName>smtpserver</jmxName>
+        <bind>127.0.0.1:@SMTP_PORT@</bind>
+        <connectionBacklog>200</connectionBacklog>
+        <tls socketTLS="false" startTLS="false"/>
+        <connectiontimeout>360</connectiontimeout>
+        <connectionLimit>0</connectionLimit>
+        <connectionLimitPerIP>0</connectionLimitPerIP>
+        <auth>
+            <announce>always</announce>
+            <requireSSL>false</requireSSL>
+            <plainAuthEnabled>true</plainAuthEnabled>
+        </auth>
+        <verifyIdentity>false</verifyIdentity>
+        <maxmessagesize>0</maxmessagesize>
+        <addressBracketsEnforcement>true</addressBracketsEnforcement>
+        <handlerchain>
+            <handler class="org.apache.james.smtpserver.fastfail.ValidRcptHandler"/>
+            <handler class="org.apache.james.smtpserver.CoreCmdHandlerLoader"/>
+        </handlerchain>
+        <gracefulShutdown>false</gracefulShutdown>
+    </smtpserver>
+</smtpservers>

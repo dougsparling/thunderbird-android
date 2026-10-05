@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!--
+  Plaintext POP3 for scenario tests with POP3 accounts, bound to loopback only. The port is filled in by the Gradle
+  test server service; tests reach it through a per-test fault proxy.
+-->
+<pop3servers>
+    <pop3server enabled="true">
+        <jmxName>pop3server</jmxName>
+        <bind>127.0.0.1:@POP3_PORT@</bind>
+        <connectionBacklog>200</connectionBacklog>
+        <tls socketTLS="false" startTLS="false"/>
+        <connectiontimeout>1200</connectiontimeout>
+        <connectionLimit>0</connectionLimit>
+        <connectionLimitPerIP>0</connectionLimitPerIP>
+        <handlerchain>
+            <handler class="org.apache.james.pop3server.core.CoreCmdHandlerLoader"/>
+        </handlerchain>
+        <gracefulShutdown>false</gracefulShutdown>
+    </pop3server>
+</pop3servers>

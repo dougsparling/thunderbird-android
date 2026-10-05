@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<managesieveservers>
+    <managesieveserver enabled="false">
+        <jmxName>managesieveserver</jmxName>
+        <bind>127.0.0.1:0</bind>
+    </managesieveserver>
+</managesieveservers>
