@@ -50,9 +50,10 @@ Until it's deleted it reaches the engine through temporary seam interfaces in `l
   `MessageListCache` stays for now, see "Open items". Suite: 105/105.
 - **Slice 4, step 1 (done):** pending commands are Kotlin data classes (`com.fsck.k9.controller.PendingCommands.kt`,
   same names and fields, no `execute(controller)`; the Java controller dispatches with `instanceof` for now).
-  `PendingCommandSerializer` is hand-written Kotlin (Moshi codegen isn't in the offline cache) and writes exactly
-  what Moshi's reflective adapter wrote: fields alphabetical, `databaseId` included, nulls left out (checked against
-  the old Java shape; `PendingCommandSerializerTest` pins it). Suite: 105/105.
+  `PendingCommandSerializer` uses Moshi's generated adapters (KSP in `legacy:core`). Rows stored by earlier
+  versions still read (the reflective adapter wrote fields alphabetically, with `databaseId`, which is now ignored);
+  `PendingCommandSerializerTest` pins that with the exact old JSON. New rows use constructor order without
+  `databaseId`. Suite: 105/105.
 - **Slice 4, step 2 (next): Kotlin implementation in `:internal`, bound instead of the adapters.** Design worked
   out, no code yet. Package `net.thunderbird.feature.mail.sync.internal`:
   - `AccountStores`: replaces `LegacyAccounts`; account by `AccountId`/UUID (same cached instance), all accounts,
@@ -107,5 +108,10 @@ Until it's deleted it reaches the engine through temporary seam interfaces in `l
 - **New flake:** `FolderSyncedTooRecentlyScenarioTest` failed once in a full run while provisioning the test server
   (`IMAP LOGIN failed ... Invalid login/password` from the provisioning client, before any app code ran); it passed
   on its own.
+- **Flake:** `PushSeesOtherClientExpungeScenarioTest` timed out once in a full run ("waiting for the app to send
+  IDLE"); it passed on its own. Push scenarios are already known to be flaky under parallel load (`HANDOFF.md`).
+- **Fetching dependencies:** this checkout's `local.properties` sets `useChinaMirrors=true`, so a plain `./gradlew`
+  uses the mirrors, which hold incomplete copies of some artifacts (e.g. `com.github.gmazzo.buildconfig:plugin`).
+  Fetch with `-PuseChinaMirrors=false`.
 - **Not run offline:** `:legacy:ui:legacy` unit tests (Robolectric wants an Android SDK jar that isn't cached) and
   `:feature:navigation:drawer:dropdown` unit tests (`ui-test-junit4` isn't cached).
