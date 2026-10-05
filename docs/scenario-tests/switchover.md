@@ -3,6 +3,7 @@
 Branch `doug-messaging-controller-switchover`, stacked on `doug-scenario-harness`. Goal: delete `MessagingController`
 and its helpers, with the app running on a replacement and the scenario suite (105 scenarios) green after every slice.
 Decisions are in [`HANDOFF.md`](HANDOFF.md) ("Parity suite for replacing MessagingController").
+Every bug found along the way, fixed or not, is listed in [`bugs.md`](bugs.md).
 
 ## Where the code goes
 
@@ -140,5 +141,9 @@ first (the connection is metered: build the list of what's missing, then ask the
   it doesn't use the HTTP proxy, so the download stalls. `:legacy:ui:legacy` needs SDK 31
   (`org.robolectric:android-all-instrumented:12-robolectric-7732740-i7`); it was fetched into `~/.m2` with `curl
   --proxy`.
+- **Spotless fails on these branches:** the root `./gradlew spotlessCheck` (which CI runs) flags
+  `JamesTestServerService.kt` and `ScenarioTestPlugin.kt` in the build plugin, and `HANDOFF.md`, `backlog.md`,
+  `scenario-plan.md` and `switchover.md` here. Earlier checks ran only `:app-thunderbird:spotlessCheck`. Fix with
+  `spotlessApply` in a separate `style:` commit before opening pull requests.
 - **Wake lock tag:** the manual mail check still uses the tag `K9 MessagingController.checkMail`, unchanged on
   purpose.
