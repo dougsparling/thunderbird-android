@@ -102,8 +102,7 @@ import org.koin.core.qualifier.named
  * `folder("Archive", specialUse = SpecialUse.ARCHIVE)`. The same refresh enables notifications for the inbox, so
  * [AccountSpec.notifyNewMail] is all it takes for new inbox mail to notify the user.
  *
- * After every action the driver waits until the controller has run all follow-up work, see
- * [MessagingControllerQueue].
+ * After every action the driver waits until the app has run all follow-up work, see [RemoteWorkQueue].
  */
 @Suppress("TooManyFunctions", "LargeClass")
 internal class LegacyScenarioDriver(
@@ -121,7 +120,7 @@ internal class LegacyScenarioDriver(
     private val uiListener = object : SimpleMessagingListener() {}
 
     private val pump = MainLooperPump(timeout)
-    private val controllerQueue = MessagingControllerQueue(messagingController)
+    private val remoteWorkQueue = RemoteWorkQueue(koin.get())
 
     private val folderDetailsRepository: FolderDetailsRepository = koin.get()
     private val pushController: PushController = koin.get()
@@ -1057,7 +1056,7 @@ internal class LegacyScenarioDriver(
 
     override fun close() {
         try {
-            controllerQueue.stopController()
+            remoteWorkQueue.stop()
         } finally {
             pump.close()
         }
@@ -1172,7 +1171,7 @@ internal class LegacyScenarioDriver(
     }
 
     override fun awaitIdle() {
-        controllerQueue.awaitIdle(pump)
+        remoteWorkQueue.awaitIdle(pump)
     }
 
     /** Maps the name shown in the app back to a logical path, using the server's hierarchy delimiter. */

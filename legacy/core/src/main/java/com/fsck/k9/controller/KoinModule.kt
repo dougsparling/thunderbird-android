@@ -44,6 +44,7 @@ val controllerModule = module {
             get<NotificationManager>(),
             get<OutboxFolderManager>(),
             get<Clock>(),
+            get<ControllerEngine>(),
         )
     } binds arrayOf(MessagingControllerRegistry::class)
 

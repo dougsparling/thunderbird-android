@@ -12,18 +12,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.PriorityBlockingQueue;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import android.content.Context;
-import android.os.Process;
-import android.os.SystemClock;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
@@ -135,10 +130,9 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
     private final SpecialLocalFoldersCreator specialLocalFoldersCreator;
     private final LocalDeleteOperationDecider localDeleteOperationDecider;
 
-    private final Thread controllerThread;
+    private final ControllerEngine engine;
 
     private final LocalMessageUidPrefixProvider localMessageUidPrefixProvider;
-    private final BlockingQueue<Command> queuedCommands = new PriorityBlockingQueue<>();
     private final Set<MessagingListener> listeners = new CopyOnWriteArraySet<>();
     private final ExecutorService threadPool = Executors.newCachedThreadPool();
     private final MemorizingMessagingListener memorizingMessagingListener = new MemorizingMessagingListener();
@@ -151,8 +145,6 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
     private final Clock clock;
     private final NotificationSenderCompat notificationSender;
     private final NotificationDismisserCompat notificationDismisser;
-
-    private volatile boolean stopped = false;
 
 
     public static MessagingController getInstance(Context context) {
@@ -177,7 +169,8 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
         Logger syncDebugLogger,
         NotificationManager notificationManager,
         OutboxFolderManager outboxFolderManager,
-        Clock clock
+        Clock clock,
+        ControllerEngine engine
     ) {
         this.context = context;
         this.notificationController = notificationController;
@@ -196,15 +189,8 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
         this.notificationDismisser = new NotificationDismisserCompat(notificationManager);
         this.outboxFolderManager = outboxFolderManager;
         this.clock = clock;
+        this.engine = engine;
 
-        controllerThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                runInBackground();
-            }
-        });
-        controllerThread.setName("MessagingController");
-        controllerThread.start();
         addListener(memorizingMessagingListener);
 
         initializeControllerExtensions(controllerExtensions);
@@ -239,65 +225,12 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
         }
     }
 
-    @VisibleForTesting
-    void stop() throws InterruptedException {
-        stopped = true;
-        controllerThread.interrupt();
-        controllerThread.join(1000L);
-    }
-
-    private void runInBackground() {
-        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-        while (!stopped) {
-            String commandDescription = null;
-            try {
-                final Command command = queuedCommands.take();
-
-                if (command != null) {
-                    commandDescription = command.description;
-
-                    Log.i("Running command '%s', seq = %s (%s priority)",
-                        command.description,
-                        command.sequence,
-                        command.isForegroundPriority ? "foreground" : "background");
-
-                    command.runnable.run();
-
-                    Log.i(" Command '%s' completed", command.description);
-                }
-            } catch (Exception e) {
-                Log.e(e, "Error running command '%s'", commandDescription);
-            }
-        }
-    }
-
     private void put(String description, MessagingListener listener, Runnable runnable) {
-        putCommand(queuedCommands, description, listener, runnable, true);
+        engine.enqueue(description, true, runnable);
     }
 
     void putBackground(String description, MessagingListener listener, Runnable runnable) {
-        putCommand(queuedCommands, description, listener, runnable, false);
-    }
-
-    private void putCommand(BlockingQueue<Command> queue, String description, MessagingListener listener,
-        Runnable runnable, boolean isForeground) {
-        int retries = 10;
-        Exception e = null;
-        while (retries-- > 0) {
-            try {
-                Command command = new Command();
-                command.listener = listener;
-                command.runnable = runnable;
-                command.description = description;
-                command.isForegroundPriority = isForeground;
-                queue.put(command);
-                return;
-            } catch (InterruptedException ie) {
-                SystemClock.sleep(200);
-                e = ie;
-            }
-        }
-        throw new Error(e);
+        engine.enqueue(description, false, runnable);
     }
 
     Backend getBackend(LegacyAccountDto account) {
@@ -795,50 +728,11 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
     }
 
     public void processPendingCommandsSynchronous(LegacyAccountDto account) throws MessagingException {
-        LocalStore localStore = localStoreProvider.getInstance(account);
-        List<PendingCommand> commands = localStore.getPendingCommands();
-
-        PendingCommand processingCommand = null;
         try {
-            for (PendingCommand command : commands) {
-                processingCommand = command;
-                String commandName = command.getCommandName();
-                Log.d("Processing pending command '%s'", commandName);
-
-                /*
-                 * We specifically do not catch any exceptions here. If a command fails it is
-                 * most likely due to a server or IO error and it must be retried before any
-                 * other command processes. This maintains the order of the commands.
-                 */
-                try {
-                    command.execute(this, account);
-
-                    localStore.removePendingCommand(command);
-
-                    Log.d("Done processing pending command '%s'", commandName);
-                } catch (MessagingException me) {
-                    if (me.isPermanentFailure()) {
-                        Log.e(me, "Failure of command '%s' was permanent, removing command from queue", commandName);
-                        localStore.removePendingCommand(processingCommand);
-                    } else {
-                        throw me;
-                    }
-                } catch (Exception e) {
-                    Log.e(e, "Unexpected exception with command '%s', removing command from queue", commandName);
-                    localStore.removePendingCommand(processingCommand);
-
-                    if (BuildConfig.DEBUG) {
-                        throw new AssertionError("Unexpected exception while processing pending command", e);
-                    }
-                }
-
-                // TODO: When removing a pending command due to an error the local changes should be reverted. Pending
-                //  commands that depend on this command should be canceled and local changes be reverted. In most cases
-                //  the user should be notified about the failure as well.
-            }
+            engine.processPendingCommands(account, (command, commandAccount) -> command.execute(this, commandAccount));
         } catch (MessagingException me) {
             notifyUserIfCertificateProblem(account, me, true);
-            Log.e(me, "Could not process command '%s'", processingCommand);
+            Log.e(me, "Could not process pending commands");
             throw me;
         }
     }
@@ -2573,28 +2467,6 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
         } else {
             Log.w("MessagingController.getId() called without a LocalMessage");
             return null;
-        }
-    }
-
-    private static AtomicInteger sequencing = new AtomicInteger(0);
-
-    private static class Command implements Comparable<Command> {
-        public Runnable runnable;
-        public MessagingListener listener;
-        public String description;
-        boolean isForegroundPriority;
-
-        int sequence = sequencing.getAndIncrement();
-
-        @Override
-        public int compareTo(@NonNull Command other) {
-            if (other.isForegroundPriority && !isForegroundPriority) {
-                return 1;
-            } else if (!other.isForegroundPriority && isForegroundPriority) {
-                return -1;
-            } else {
-                return (sequence - other.sequence);
-            }
         }
     }
 

@@ -165,7 +165,8 @@ public class MessagingControllerTest extends K9RobolectricTest {
             syncLogger,
             notificationManager,
             fakeOutboxFolderManager,
-            Clock.System.INSTANCE
+            Clock.System.INSTANCE,
+            new FakeControllerEngine()
         );
 
         configureAccount();
@@ -176,7 +177,6 @@ public class MessagingControllerTest extends K9RobolectricTest {
     @After
     public void tearDown() throws Exception {
         removeAccountsFromPreferences();
-        controller.stop();
         autoClose();
     }
 
