@@ -38,6 +38,9 @@ internal class ProxyConnection(
     /** Rules from `afterServerResponds` waiting for the tagged response of the command, by tag. */
     private val awaitingResponse = ConcurrentHashMap<String, FaultRule>()
 
+    /** Tags of `FETCH` and `UID FETCH` commands the server hasn't completed yet; see [Pump.receive]. */
+    private val fetchTags = ConcurrentHashMap.newKeySet<String>()
+
     @Volatile
     private var upstream: Socket? = null
 
@@ -196,6 +199,15 @@ internal class ProxyConnection(
         /** True while the rest of a command the proxy answered itself (its literal data) is being dropped. */
         private var droppingCommand = false
 
+        /** A server's tagged FETCH completion, held back briefly in case FETCH data for it still follows. */
+        private var heldCompletion: FrameSegment.Line? = null
+
+        /** True while forwarding an untagged FETCH response that arrived while [heldCompletion] was held. */
+        private var forwardingLateFetch = false
+
+        /** Untagged FETCH responses forwarded ahead of [heldCompletion]. */
+        private var lateFetchCount = 0
+
         /**
          * Writes [bytes] to this pump's destination between two statements, never in the middle of one, e.g. a
          * response the proxy makes up while the server is sending a FETCH response with a literal.
@@ -231,12 +243,18 @@ internal class ProxyConnection(
 
         /** Reads and forwards one chunk. Returns false at the end of the stream. */
         private fun pumpOnce(): Boolean {
-            source.soTimeout = if (framer.hasPartialLine) PARTIAL_LINE_FLUSH_MS else 0
+            source.soTimeout = when {
+                framer.hasPartialLine -> PARTIAL_LINE_FLUSH_MS
+                heldCompletion != null && !forwardingLateFetch -> HELD_COMPLETION_MS
+                else -> 0
+            }
             val count = try {
                 input.read(buffer)
             } catch (_: SocketTimeoutException) {
                 // The source sent an unterminated line (e.g. a non-IMAP prompt) and paused. Forward what we have.
-                framer.flushPartialLine()?.let(::handle)
+                framer.flushPartialLine()?.let(::receive)
+                // Or no more FETCH data followed a held completion.
+                if (!forwardingLateFetch) releaseHeldCompletion()
                 0
             }
             if (count > 0) forwardChunk(count)
@@ -251,16 +269,70 @@ internal class ProxyConnection(
                 transcriber.raw(direction, count)
                 write(buffer, 0, count)
             } else {
-                framer.feed(buffer, 0, count).forEach(::handle)
+                framer.feed(buffer, 0, count).forEach(::receive)
             }
         }
 
         private fun endOfStream() {
-            framer.flushPartialLine()?.let(::handle)
+            framer.flushPartialLine()?.let(::receive)
+            releaseHeldCompletion()
             output.flush()
             transcriber.event("$sourceName closed its side (EOF)")
             runCatching { destination.shutdownOutput() }
             onDirectionEnded()
+        }
+
+        /**
+         * Works around a race in Apache James 3.9: under load it sometimes sends the tagged completion of a FETCH
+         * before (some of) the command's untagged FETCH responses, and a client then treats the late responses as
+         * belonging to its next command. The server-to-client pump holds a FETCH completion for up to
+         * [HELD_COMPLETION_MS] and forwards untagged FETCH responses that arrive meanwhile first, so the client sees
+         * the order the protocol requires. Anything else ends the hold. Each repair is recorded in the transcript.
+         */
+        private fun receive(segment: FrameSegment) {
+            if (heldCompletion == null) {
+                if (direction == Direction.DOWNSTREAM && !opaque && isFetchCompletion(segment)) {
+                    heldCompletion = segment as FrameSegment.Line
+                } else {
+                    handle(segment)
+                }
+                return
+            }
+            if (forwardingLateFetch || isUntaggedFetch(segment)) {
+                if (!forwardingLateFetch) lateFetchCount++
+                handle(segment)
+                forwardingLateFetch = when (segment) {
+                    is FrameSegment.LiteralData -> true
+                    is FrameSegment.Line -> !segment.complete || segment.literalFollows != null
+                }
+                return
+            }
+            releaseHeldCompletion()
+            receive(segment)
+        }
+
+        private fun isFetchCompletion(segment: FrameSegment): Boolean {
+            val isStatement = segment is FrameSegment.Line && !segment.continuation && segment.complete &&
+                segment.literalFollows == null
+            val tag = if (isStatement) ImapSyntax.responseTag((segment as FrameSegment.Line).text) else null
+            return tag != null && fetchTags.remove(tag)
+        }
+
+        private fun isUntaggedFetch(segment: FrameSegment): Boolean =
+            segment is FrameSegment.Line && !segment.continuation && UNTAGGED_FETCH.containsMatchIn(segment.text)
+
+        private fun releaseHeldCompletion() {
+            val held = heldCompletion ?: return
+            heldCompletion = null
+            forwardingLateFetch = false
+            if (lateFetchCount > 0) {
+                transcriber.event(
+                    "server sent $lateFetchCount FETCH response(s) after the tagged completion below; " +
+                        "forwarded them first (James response-order workaround)",
+                )
+                lateFetchCount = 0
+            }
+            handle(held)
         }
 
         private fun handle(segment: FrameSegment) {
@@ -337,6 +409,7 @@ internal class ProxyConnection(
         private fun onClientCommand(line: FrameSegment.Line): Boolean {
             val command = ImapSyntax.parseCommand(line.text) ?: return false
             if (command.name == "COMPRESS" || command.name == "STARTTLS") opaqueStreamTag = command.tag
+            if (command.name == "FETCH" || command.name == "UID FETCH") fetchTags.add(command.tag)
 
             val rule = currentRules().matchCommand(command.name, command.arguments)
             return when ((rule?.trigger as? FaultTrigger.ImapCommand)?.timing) {
@@ -432,6 +505,8 @@ internal class ProxyConnection(
         const val PARTIAL_LINE_FLUSH_MS = 200
         const val THROTTLE_SLICES_PER_SECOND = 20
         const val INJECT_WAIT_MS = 50L
+        const val HELD_COMPLETION_MS = 25
+        val UNTAGGED_FETCH = Regex("""^\* \d+ FETCH\b""", RegexOption.IGNORE_CASE)
     }
 }
 
