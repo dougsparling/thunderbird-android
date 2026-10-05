@@ -99,8 +99,10 @@ A scenario (`scenario { … }`) sees:
 
 ## Harness extensions (done, committed)
 
-- **Queue:** `awaitIdle` fails fast with `ControllerThreadDiedException` (with the cause) when the controller thread
-  dies (debug builds throw `AssertionError` for unexpected pending-command exceptions, ~`MessagingController.java:825`).
+- **Queue:** `awaitIdle` waits for the sync engine's idle signal (`RemoteWorkQueue`) and fails fast with
+  `SyncEngineStoppedException` (with the cause) when the engine stops (debug builds throw `AssertionError` for
+  unexpected pending-command exceptions, `PendingCommandReplay`). Before the switchover it reflected into
+  `MessagingController`'s thread and queue.
 - **Driver:** `markUnread`, `setStarred(…, starred)`, `delete`, `archive`, `move(…, to)`, `markAllRead`, `emptyTrash`,
   `loadMore`, `refreshFolders`, `updatePassword`, plus `client.account(…, notifyNewMail = false)`. Each mirrors the UI
   (comments name the UI code) and refuses where the UI would (no archive/trash folder, outbox, no "load more").
