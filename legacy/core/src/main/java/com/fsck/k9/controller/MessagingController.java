@@ -1205,7 +1205,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
                 SyncConfig syncConfig = createSyncConfig(account);
                 backend.downloadMessage(syncConfig, folderServerId, messageServerId);
             } else {
-                MessagingControllerWrapperKt.downloadCompleteMessageBlocking(
+                BackendDownloadsKt.downloadCompleteMessageBlocking(
                     backend, Dispatchers.getIO(), folderServerId, messageServerId);
             }
 
