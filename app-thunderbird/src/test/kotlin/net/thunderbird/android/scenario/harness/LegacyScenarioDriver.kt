@@ -55,6 +55,7 @@ import net.thunderbird.core.android.account.SortType
 import net.thunderbird.core.common.exception.MessagingException
 import net.thunderbird.core.common.mail.Flag
 import net.thunderbird.core.common.notification.NotificationActionTokens
+import net.thunderbird.core.preference.interaction.InteractionSettingsPreferenceManager
 import net.thunderbird.core.preference.notification.NotificationPreferenceManager
 import net.thunderbird.feature.account.settings.api.BackgroundAccountRemover
 import net.thunderbird.feature.mail.folder.FolderType
@@ -239,6 +240,12 @@ internal class LegacyScenarioDriver(
             NotificationButton.ARCHIVE -> NotificationActionTokens.ARCHIVE
             NotificationButton.SPAM -> NotificationActionTokens.SPAM
         }
+
+    override fun setConfirmDeleteFromNotification(confirm: Boolean) {
+        // Same as the switch in the general settings' "Confirm actions".
+        val preferenceManager = koin.get<InteractionSettingsPreferenceManager>()
+        preferenceManager.save(preferenceManager.getConfig().copy(isConfirmDeleteFromNotification = confirm))
+    }
 
     override fun removeAccount(account: ClientAccount) {
         // Same as confirming "Remove account" in the account settings, which hands the work to WorkManager.

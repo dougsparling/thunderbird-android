@@ -29,6 +29,12 @@ interface ScenarioDriver : AutoCloseable {
      */
     fun setNotificationActions(actions: List<NotificationButton>)
 
+    /**
+     * "Confirm actions: delete (from notifications)" in the general settings. On by default, so a notification's
+     * Delete button asks for confirmation in a separate screen instead of deleting.
+     */
+    fun setConfirmDeleteFromNotification(confirm: Boolean)
+
     /** The user removes the account (account settings, "Remove account"). */
     fun removeAccount(account: ClientAccount)
 
