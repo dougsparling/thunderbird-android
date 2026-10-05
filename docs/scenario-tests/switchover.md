@@ -62,6 +62,8 @@ Until it's deleted it reaches the engine through temporary seam interfaces in `l
   `PendingCommandQueue` + `PendingCommandProcessor` (still a `PendingCommandExecutor` for `PendingCommandReplay`),
   `LocalMessages` (grouping by account/folder, threads, `MessageListCache` calls), `MessageMover`, one `Default...`
   class per contract, `FolderSyncListener` (port of `ControllerSyncListener`), `ProgressBodyFactory`.
+  Suite: 105/105 (one run had the known push timeout, `PushResumesAfterDisconnectScenarioTest`; it passed alone and
+  in the next full run).
   Order of local writes, cache updates, queueing, events and notifications is the controller's. Differences:
   - Listener callbacks nothing observed are gone (`folderStatusChanged` is only the message store signal,
     `synchronizeMailboxNewMessage`/`RemovedMessage`/`HeadersStarted` aren't emitted). `syncPeriodically` records
@@ -73,8 +75,6 @@ Until it's deleted it reaches the engine through temporary seam interfaces in `l
     non-null Kotlin parameter).
   - The remote search log line no longer contains the query.
   - Dispatchers are constructor parameters with defaults, so Koin's `verify()` accepts them.
-  Suite: 105/105 (one run had the known push timeout, `PushResumesAfterDisconnectScenarioTest`; it passed alone and
-  in the next full run).
 - **Slice 4, step 3 (done):** deleted `MessagingController`, `ArchiveOperations`, `DraftOperations`,
   `NotificationOperations`, `MemorizingMessagingListener`, `ControllerExtension` (+ its bindings),
   `ControllerEngine`/`SerializerControllerEngine`/`FakeControllerEngine`, `ProgressBodyFactory`, `NotificationState`,
@@ -141,9 +141,6 @@ first (the connection is metered: build the list of what's missing, then ask the
   it doesn't use the HTTP proxy, so the download stalls. `:legacy:ui:legacy` needs SDK 31
   (`org.robolectric:android-all-instrumented:12-robolectric-7732740-i7`); it was fetched into `~/.m2` with `curl
   --proxy`.
-- **Spotless fails on these branches:** the root `./gradlew spotlessCheck` (which CI runs) flags
-  `JamesTestServerService.kt` and `ScenarioTestPlugin.kt` in the build plugin, and `HANDOFF.md`, `backlog.md`,
-  `scenario-plan.md` and `switchover.md` here. Earlier checks ran only `:app-thunderbird:spotlessCheck`. Fix with
-  `spotlessApply` in a separate `style:` commit before opening pull requests.
 - **Wake lock tag:** the manual mail check still uses the tag `K9 MessagingController.checkMail`, unchanged on
   purpose.
+
