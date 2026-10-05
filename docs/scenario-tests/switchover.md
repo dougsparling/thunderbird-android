@@ -107,18 +107,38 @@ first (the connection is metered: build the list of what's missing, then ask the
 3. **Tests that weren't run:** unit tests of `:legacy:message` (6), `:legacy:ui:legacy` (270) and
    `:feature:navigation:drawer:dropdown` (37) now pass. Still not run: the full `./gradlew lint` and
    `connectedAndroidTest` (needs a device or emulator).
-4. **Unit tests for the new classes.** Only `SyncEventBus` has its own tests; everything else in
-   `:feature:mail:sync:internal` relies on the 105 scenarios. Candidates with logic worth pinning: `ServerErrorNotifier`
-   (feature flag combinations; `FakeNotificationManager` exists for it), `PendingCommandProcessor`, the delete policy
-   branches in `DefaultMessageDeleteRepository`, the send-state handling in `DefaultOutboxSender`. Most of them work
-   on `LocalStore`/`LocalFolder`, which have no fakes, so this may need a Robolectric store like `legacy:core`'s tests.
+4. **Unit tests for the new classes (next up, sized 2026-10-06).** The engine has 17 tests (`SyncEventBus` 6,
+   `RemoteWorkSerializer` 6, `PendingCommandReplay` 5). The 13 classes that do the sync, move, delete and send work
+   have none and rely on the 105 scenarios. Estimate: about 100 tests for the whole module, about 55 for the first
+   batch:
+
+   |              Class               | Tests |                                     What to cover                                      |
+   |----------------------------------|-------|----------------------------------------------------------------------------------------|
+   | `PendingCommandProcessor`        | ~15   | each command type, permanent vs. temporary failure, UID mapping after a move           |
+   | `DefaultMailSynchronizer`        | ~12   | "checked too recently", periodic vs. push, failure recording, null-listener regression |
+   | `DefaultOutboxSender`            | ~10   | success, transient/permanent failure, retry limit, auth error, Sent upload             |
+   | `DefaultMessageDeleteRepository` | ~10   | delete policy branches, no Trash folder, expunge, Outbox and Drafts                    |
+   | `ServerErrorNotifier`            | ~8    | feature flag combinations per error type, clearing                                     |
+
+   The other ten classes need about 45 more (2 to 6 each). The first batch includes regression tests for the two
+   crashes fixed in the port (see [`bugs.md`](bugs.md)), which `AGENTS.md` asks for.
+
+   **Decision for the user before starting:** how to set the tests up. `NotificationController` is a final class with
+   an internal constructor, and `LocalStore`, `LocalFolder` and the backend have no fakes. Options: (a) Robolectric
+   with a real `LocalStore` on a temporary database, like `legacy:core`'s tests (no production changes, slower
+   tests); (b) small interfaces in front of the legacy store and notification code, with fakes (faster, cleaner
+   tests, but production changes that need approval). Suggested: start with (a) on `ServerErrorNotifier` and one
+   store-heavy class, then decide whether (b) is worth it.
+
 5. **`MessageListCache`:** the deferred decision in "Open items".
+
 6. **Pre-existing dead code (not from these branches, left alone):** on `main`, nothing called
    `MessagingController.clearCertificateErrorNotifications`, so the `clearCertificateErrorNotifications` methods of
    `NotificationController` and `CertificateErrorNotificationController` are unused outside tests: the app never
    clears certificate error notifications. Possibly a missing feature rather than dead code; ask before deleting.
    Also unused on `main` already, except by its own test: `legacy/core/.../controller/UidReverseComparator.java` (the
    IMAP backend has its own).
+
 7. **Publishing:** nothing is pushed. This branch is stacked on `doug-scenario-harness`, so that one goes first (or
    both together). Pull request descriptions must list the Gradle commands run, what wasn't run and why, and disclose
    AI assistance (`AGENTS.md`).
