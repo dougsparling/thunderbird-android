@@ -57,6 +57,7 @@ dependencies {
     implementation(projects.feature.mail.message.list.api)
     implementation(projects.feature.mail.message.reader.api)
     implementation(projects.feature.mail.message.reader.impl)
+    implementation(projects.feature.mail.sync.internal)
 
     implementation(projects.mail.protocols.imap)
     implementation(projects.backend.imap)
