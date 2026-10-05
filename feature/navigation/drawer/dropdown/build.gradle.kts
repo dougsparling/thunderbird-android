@@ -24,6 +24,7 @@ dependencies {
     implementation(projects.feature.account.avatar.impl)
     implementation(projects.feature.mail.account.api)
     implementation(projects.feature.mail.folder.api)
+    implementation(projects.feature.mail.sync.api)
     implementation(projects.feature.notification.api)
 
     implementation(projects.feature.search.implLegacy)

@@ -9,7 +9,6 @@ import app.k9mail.feature.account.setup.AccountSetupExternalContract.AccountCrea
 import com.fsck.k9.Core
 import com.fsck.k9.Preferences
 import com.fsck.k9.account.DeletePolicyProvider
-import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.mail.ServerSettings
 import com.fsck.k9.mail.store.imap.ImapStoreSettings.autoDetectNamespace
 import com.fsck.k9.mail.store.imap.ImapStoreSettings.createExtra
@@ -27,6 +26,7 @@ import net.thunderbird.feature.account.avatar.AvatarMonogramCreator
 import net.thunderbird.feature.account.storage.profile.AvatarDto
 import net.thunderbird.feature.account.storage.profile.AvatarTypeDto
 import net.thunderbird.feature.mail.folder.api.SpecialFolderSelection
+import net.thunderbird.feature.mail.sync.api.MailSynchronizer
 import net.thunderbird.legacy.logging.Log
 
 // TODO Move to feature/account/setup
@@ -36,7 +36,7 @@ internal class AccountCreator(
     private val localFoldersCreator: SpecialLocalFoldersCreator,
     private val preferences: Preferences,
     private val context: Context,
-    private val messagingController: MessagingController,
+    private val mailSynchronizer: MailSynchronizer,
     private val deletePolicyProvider: DeletePolicyProvider,
     private val avatarMonogramCreator: AvatarMonogramCreator,
     private val unifiedInboxConfigurator: UnifiedInboxConfigurator,
@@ -101,10 +101,15 @@ internal class AccountCreator(
 
         Core.setServicesEnabled(context)
 
-        messagingController.refreshFolderListBlocking(newAccount)
+        mailSynchronizer.refreshFolderList(newAccount.id)
 
         if (account.options.checkFrequencyInMinutes == -1) {
-            messagingController.checkMail(newAccount, false, true, false, null)
+            mailSynchronizer.requestCheckMail(
+                accountId = newAccount.id,
+                ignoreLastCheckedTime = false,
+                useManualWakeLock = true,
+                notify = false,
+            )
         }
 
         return newAccount.uuid

@@ -88,7 +88,7 @@ internal val appCommonAccountModule = module {
             preferences = get(),
             context = androidApplication(),
             deletePolicyProvider = get(),
-            messagingController = get(),
+            mailSynchronizer = get(),
             avatarMonogramCreator = get(),
             unifiedInboxConfigurator = get(),
         )

@@ -5,8 +5,9 @@ import android.content.Context
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.fsck.k9.Preferences
-import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.mail.AuthType
+import kotlinx.coroutines.runBlocking
+import net.thunderbird.feature.mail.sync.api.MailSynchronizer
 import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.legacy.logging.Log
 import net.thunderbird.core.preference.BackgroundOps
@@ -14,7 +15,7 @@ import net.thunderbird.core.preference.GeneralSettingsManager
 
 // IMPORTANT: Update K9WorkerFactory when moving this class and the FQCN no longer starts with "com.fsck.k9".
 class MailSyncWorker(
-    private val messagingController: MessagingController,
+    private val mailSynchronizer: MailSynchronizer,
     private val preferences: Preferences,
     private val generalSettingsManager: GeneralSettingsManager,
     context: Context,
@@ -53,7 +54,7 @@ class MailSyncWorker(
             return Result.success()
         }
 
-        val success = messagingController.performPeriodicMailSync(account)
+        val success = runBlocking { mailSynchronizer.syncPeriodically(account.id) }
 
         return if (success) Result.success() else Result.retry()
     }

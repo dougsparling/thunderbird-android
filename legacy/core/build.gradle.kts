@@ -26,6 +26,7 @@ dependencies {
     api(projects.legacy.di)
     api(projects.legacy.mailstore)
     api(projects.legacy.message)
+    api(projects.feature.mail.sync.api)
     implementation(projects.legacy.logging)
     implementation(projects.feature.notification.api)
 

@@ -4,8 +4,8 @@ import android.content.Context
 import app.k9mail.feature.settings.import.SettingsImportExternalContract
 import com.fsck.k9.Core
 import com.fsck.k9.Preferences
-import com.fsck.k9.controller.MessagingController
 import net.thunderbird.core.android.account.LegacyAccountDto
+import net.thunderbird.feature.mail.sync.api.MailSynchronizer
 
 /**
  * Activate account after server password(s) have been provided on settings import.
@@ -13,7 +13,7 @@ import net.thunderbird.core.android.account.LegacyAccountDto
 class AccountActivator(
     private val context: Context,
     private val preferences: Preferences,
-    private val messagingController: MessagingController,
+    private val mailSynchronizer: MailSynchronizer,
 ) : SettingsImportExternalContract.AccountActivator {
     override fun enableAccount(accountUuid: String, incomingServerPassword: String?, outgoingServerPassword: String?) {
         val account = preferences.getAccount(accountUuid) ?: error("Account $accountUuid not found")
@@ -33,7 +33,7 @@ class AccountActivator(
         Core.setServicesEnabled(context)
 
         // Get list of folders from remote server
-        messagingController.refreshFolderList(account)
+        mailSynchronizer.requestFolderListRefresh(account.id)
     }
 
     private fun setAccountPasswords(

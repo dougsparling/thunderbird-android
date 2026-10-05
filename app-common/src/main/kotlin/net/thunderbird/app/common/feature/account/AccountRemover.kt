@@ -4,7 +4,6 @@ import com.fsck.k9.Core
 import com.fsck.k9.LocalKeyStoreManager
 import com.fsck.k9.Preferences
 import com.fsck.k9.backend.BackendManager
-import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.mailstore.LocalStoreProvider
 import com.fsck.k9.preferences.UnifiedInboxConfigurator
 import kotlinx.coroutines.runBlocking
@@ -12,13 +11,14 @@ import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.core.logging.Logger
 import net.thunderbird.feature.account.AccountIdFactory
 import net.thunderbird.feature.account.avatar.AvatarImageRepository
+import net.thunderbird.feature.mail.sync.api.NewMailNotifications
 
 /**
  * Removes an account and all associated data.
  */
 class AccountRemover(
     private val localStoreProvider: LocalStoreProvider,
-    private val messagingController: MessagingController,
+    private val newMailNotifications: NewMailNotifications,
     private val backendManager: BackendManager,
     private val localKeyStoreManager: LocalKeyStoreManager,
     private val preferences: Preferences,
@@ -39,7 +39,7 @@ class AccountRemover(
 
         removeAvatar(account.uuid)
         removeLocalStore(account)
-        messagingController.deleteAccount(account)
+        newMailNotifications.onAccountRemoved(account.id)
         removeBackend(account)
 
         preferences.deleteAccount(account)
