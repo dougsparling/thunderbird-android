@@ -13,6 +13,10 @@ dependencies {
     api(projects.feature.mail.sync.api)
 
     implementation(projects.core.logging.api)
+    implementation(projects.core.featureflag)
+    implementation(projects.feature.mail.message.list.api)
+    implementation(projects.feature.notification.api)
+    implementation(libs.commons.io)
 
     testImplementation(projects.core.logging.testing)
     testImplementation(projects.core.testing)
