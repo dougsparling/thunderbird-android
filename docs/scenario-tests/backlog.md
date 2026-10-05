@@ -56,6 +56,11 @@ parity; fixing them is a separate decision.
   `CertificateValidationException` in a `MessagingException`, and `notifyUserIfCertificateProblem` only checks the
   top-level exception type.
 
+- **PeriodicSyncRetryAfterNetworkFailureScenarioTest (plan C11):** after a periodic sync fails because the server is
+  unreachable, the WorkManager retry skips INBOX as "checked too recently", because the failed sync recorded INBOX as
+  checked (`ImapSync.kt` ~:244-251), so new mail waits for the next regular run. Visible since sync timestamps use the
+  scenario clock; before, the wall clock made every folder look stale and the scenario passed for the wrong reason.
+
 ## Blocked by the harness
 
 ### C4 NoNotificationStormAfterUidValidityScenarioTest
@@ -66,16 +71,6 @@ parity; fixing them is a separate decision.
 - **Then (expected)** no new-mail notifications; the app still lists the 10 messages.
 - **Blocked:** `server.recreateFolder` can't recreate INBOX (INBOX can't be deleted). Needs a harness way to change
   INBOX's UIDVALIDITY, e.g. through the James WebAdmin API or by recreating the user's mailbox.
-
-### E10.3 FolderSyncedTooRecentlyScenarioTest and E10.4 FolderListRefreshedWhenStaleScenarioTest
-
-- **E10.3:** a periodic sync shortly after a manual refresh doesn't sync the folder again (the account's check
-  interval hasn't passed since the folder was last checked). **E10.4:** a folder created on another device shows up
-  through a periodic sync once the app's folder list is more than 30 minutes old, without a manual folder refresh.
-- **Blocked:** both depend on timestamps the app takes from the system clock, which scenarios can't move: IMAP and
-  POP3 sync record a folder's last check with it (`ImapSync.kt` ~:229, :247), and the folder list staleness check uses
-  `System.currentTimeMillis()` (`MessagingController.java` ~:628). E10.4 was written and fails for this reason. The fix
-  is to read the injected `Clock` there (production code, needs approval).
 
 ### Not covered
 
