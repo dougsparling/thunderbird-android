@@ -139,9 +139,9 @@ first (the connection is metered: build the list of what's missing, then ask the
    Also unused on `main` already, except by its own test: `legacy/core/.../controller/UidReverseComparator.java` (the
    IMAP backend has its own).
 
-7. **Publishing:** nothing is pushed. This branch is stacked on `doug-scenario-harness`, so that one goes first (or
-   both together). Pull request descriptions must list the Gradle commands run, what wasn't run and why, and disclose
-   AI assistance (`AGENTS.md`).
+7. **Publishing (done 2026-10-06, fork only):** stacked pull requests in `dougsparling/thunderbird-android`, none
+   against `thunderbird/thunderbird-android`: #1 `doug-china-mirrors` → `main`, #2 `doug-scenario-harness` →
+   `doug-china-mirrors`, #3 this branch → `doug-scenario-harness`. Push follow-up commits to the matching branch.
 
 ## Open items
 
