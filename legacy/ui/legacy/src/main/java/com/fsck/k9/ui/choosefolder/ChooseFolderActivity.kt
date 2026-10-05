@@ -14,7 +14,6 @@ import app.k9mail.legacy.ui.folder.DisplayFolder
 import app.k9mail.legacy.ui.folder.FolderIconProvider
 import app.k9mail.legacy.ui.folder.FolderNameFormatter
 import com.fsck.k9.Preferences
-import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.ui.R
 import com.fsck.k9.ui.base.BaseActivity
 import com.mikepenz.fastadapter.FastAdapter
@@ -25,12 +24,13 @@ import net.thunderbird.feature.mail.folder.FolderType
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import org.koin.core.parameter.parametersOf
+import net.thunderbird.feature.mail.sync.api.MailSynchronizer
 
 @Suppress("TooManyFunctions")
 class ChooseFolderActivity : BaseActivity() {
     private val viewModel: ChooseFolderViewModel by viewModel()
     private val preferences: Preferences by inject()
-    private val messagingController: MessagingController by inject()
+    private val mailSynchronizer: MailSynchronizer by inject()
     private val folderNameFormatter: FolderNameFormatter by inject()
     private val folderIconProvider: FolderIconProvider by inject { parametersOf(theme) }
 
@@ -188,7 +188,7 @@ class ChooseFolderActivity : BaseActivity() {
     }
 
     private fun refreshFolderList() {
-        messagingController.refreshFolderList(account)
+        mailSynchronizer.requestFolderListRefresh(account.id)
     }
 
     private fun setShowHiddenFolders(enabled: Boolean) {

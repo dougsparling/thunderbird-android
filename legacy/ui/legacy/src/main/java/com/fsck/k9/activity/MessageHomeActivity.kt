@@ -39,7 +39,6 @@ import com.fsck.k9.CoreResourceProvider
 import com.fsck.k9.K9.fontSizes
 import com.fsck.k9.Preferences
 import com.fsck.k9.activity.compose.MessageActions
-import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.search.isUnifiedFolders
 import com.fsck.k9.ui.BuildConfig
 import com.fsck.k9.ui.R
@@ -87,6 +86,7 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.koin.core.parameter.parametersOf
 import androidx.core.net.toUri
+import net.thunderbird.feature.mail.sync.api.NewMailNotifications
 
 private const val TAG = "MainActivity"
 
@@ -116,7 +116,7 @@ open class MessageHomeActivity :
     private val accountManager: LegacyAccountDtoManager by inject()
     private val defaultFolderProvider: DefaultFolderProvider by inject()
     private val generalSettingsManager: GeneralSettingsManager by inject()
-    private val messagingController: MessagingController by inject()
+    private val newMailNotifications: NewMailNotifications by inject()
     private val contactRepository: ContactRepository by inject()
     private val coreResourceProvider: CoreResourceProvider by inject()
     private val fundingManager: FundingManager by inject()
@@ -1440,7 +1440,7 @@ open class MessageHomeActivity :
     }
 
     private fun clearNotifications() {
-        messagingController.clearNotifications(search)
+        search?.let(newMailNotifications::clearForMessageList)
     }
 
     private val isAdditionalMessageListDisplayed: Boolean

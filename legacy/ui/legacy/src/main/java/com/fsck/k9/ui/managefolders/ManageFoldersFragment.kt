@@ -19,7 +19,6 @@ import app.k9mail.legacy.ui.folder.DisplayFolder
 import app.k9mail.legacy.ui.folder.FolderIconProvider
 import app.k9mail.legacy.ui.folder.FolderNameFormatter
 import com.fsck.k9.Preferences
-import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.ui.R
 import com.fsck.k9.ui.base.livedata.observeNotNull
 import com.mikepenz.fastadapter.FastAdapter
@@ -29,11 +28,12 @@ import net.thunderbird.core.android.account.LegacyAccountDto
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import org.koin.core.parameter.parametersOf
+import net.thunderbird.feature.mail.sync.api.MailSynchronizer
 
 class ManageFoldersFragment : Fragment() {
     private val viewModel: ManageFoldersViewModel by viewModel()
     private val folderNameFormatter: FolderNameFormatter by inject()
-    private val messagingController: MessagingController by inject()
+    private val mailSynchronizer: MailSynchronizer by inject()
     private val preferences: Preferences by inject()
     private val folderIconProvider: FolderIconProvider by inject { parametersOf(requireActivity().theme) }
 
@@ -154,7 +154,7 @@ class ManageFoldersFragment : Fragment() {
     }
 
     private fun refreshFolderList() {
-        messagingController.refreshFolderList(account)
+        mailSynchronizer.requestFolderListRefresh(account.id)
     }
 
     private fun folderListFilter(item: FolderListItem, constraint: CharSequence?): Boolean {
