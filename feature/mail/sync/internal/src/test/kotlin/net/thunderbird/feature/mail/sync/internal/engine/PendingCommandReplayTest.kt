@@ -7,7 +7,6 @@ import assertk.assertions.isEmpty
 import assertk.assertions.isInstanceOf
 import assertk.assertions.isSameInstanceAs
 import com.fsck.k9.controller.PendingCommand
-import com.fsck.k9.controller.PendingCommandExecutor
 import com.fsck.k9.controller.PendingExpunge
 import kotlin.test.Test
 import net.thunderbird.core.android.account.LegacyAccountDto

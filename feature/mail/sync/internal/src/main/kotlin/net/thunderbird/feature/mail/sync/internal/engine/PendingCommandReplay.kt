@@ -1,6 +1,6 @@
 package net.thunderbird.feature.mail.sync.internal.engine
 
-import com.fsck.k9.controller.PendingCommandExecutor
+import com.fsck.k9.controller.PendingCommand
 import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.core.common.exception.MessagingException
 import net.thunderbird.core.logging.Logger
@@ -49,4 +49,10 @@ class PendingCommandReplay(
             }
         }
     }
+}
+
+/** Carries out one pending command against the server. */
+fun interface PendingCommandExecutor {
+    @Throws(MessagingException::class)
+    fun execute(command: PendingCommand, account: LegacyAccountDto)
 }

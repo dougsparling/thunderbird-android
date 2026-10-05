@@ -3,7 +3,6 @@ package net.thunderbird.feature.mail.sync.internal
 import com.fsck.k9.backend.api.Backend
 import com.fsck.k9.controller.PendingAppend
 import com.fsck.k9.controller.PendingCommand
-import com.fsck.k9.controller.PendingCommandExecutor
 import com.fsck.k9.controller.PendingDelete
 import com.fsck.k9.controller.PendingEmptySpam
 import com.fsck.k9.controller.PendingEmptyTrash
@@ -22,6 +21,7 @@ import net.thunderbird.core.common.mail.Flag
 import net.thunderbird.core.logging.Logger
 import net.thunderbird.feature.mail.message.list.LocalMessageUidPrefixProvider
 import net.thunderbird.feature.mail.sync.api.SyncEvent
+import net.thunderbird.feature.mail.sync.internal.engine.PendingCommandExecutor
 import net.thunderbird.feature.mail.sync.internal.engine.RemoteWorkSerializer
 import net.thunderbird.feature.mail.sync.internal.engine.WorkPriority
 

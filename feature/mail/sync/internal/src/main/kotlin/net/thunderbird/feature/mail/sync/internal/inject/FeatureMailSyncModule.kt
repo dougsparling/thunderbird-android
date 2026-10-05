@@ -1,6 +1,5 @@
 package net.thunderbird.feature.mail.sync.internal.inject
 
-import com.fsck.k9.controller.ControllerEngine
 import com.fsck.k9.core.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import net.thunderbird.feature.mail.sync.api.MailSynchronizer
@@ -32,7 +31,6 @@ import net.thunderbird.feature.mail.sync.internal.engine.LocalStorePendingComman
 import net.thunderbird.feature.mail.sync.internal.engine.PendingCommandLog
 import net.thunderbird.feature.mail.sync.internal.engine.PendingCommandReplay
 import net.thunderbird.feature.mail.sync.internal.engine.RemoteWorkSerializer
-import net.thunderbird.feature.mail.sync.internal.engine.SerializerControllerEngine
 import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
@@ -47,13 +45,6 @@ val featureMailSyncModule = module {
             pendingCommandLog = get(),
             logger = get(),
             isDebug = BuildConfig.DEBUG,
-        )
-    }
-
-    single<ControllerEngine> {
-        SerializerControllerEngine(
-            serializer = get(),
-            pendingCommandReplay = get(),
         )
     }
 
