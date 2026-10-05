@@ -143,6 +143,12 @@ first (the connection is metered: build the list of what's missing, then ask the
    against `thunderbird/thunderbird-android`: #1 `doug-china-mirrors` → `main`, #2 `doug-scenario-harness` →
    `doug-china-mirrors`, #3 this branch → `doug-scenario-harness`. Push follow-up commits to the matching branch.
 
+8. **Scenario tests in CI (done 2026-10-06):** `.github/workflows/test-scenarios.yml` runs the suite on pull requests
+   and on demand on a standard `ubuntu-latest` runner, about 18 minutes with the Gradle and Robolectric caches warm.
+   Getting there needed three test-infrastructure fixes for James races under load (see `HANDOFF.md`, "James races
+   under load"). Four consecutive runs passed (run 37371435765 in the fork, attempts 1 to 4). GitHub sometimes
+   doesn't assign a runner to a re-run ("job was not acquired by Runner"); that isn't a test failure.
+
 ## Open items
 
 - **`MessageListCache` stays.** Applying moves and deletes locally right away (so the cache could go) lets a sync
