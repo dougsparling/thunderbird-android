@@ -257,6 +257,14 @@ internal class LegacyScenarioDriver(
         awaitIdle()
     }
 
+    override fun openFolder(account: ClientAccount, folder: FolderPath) {
+        val accountDto = accountDto(account)
+
+        // Same as MessageHomeActivity.onMessageListDisplayed() for the search of one folder of one account.
+        messagingController.clearNotifications(folderSearch(accountDto, folderId(accountDto, folder)))
+        awaitIdle()
+    }
+
     override fun pullToRefresh(account: ClientAccount, folder: FolderPath) {
         startPullToRefresh(account, folder)
         awaitIdle()
@@ -429,6 +437,17 @@ internal class LegacyScenarioDriver(
             listOf(item.messageReference),
             spamFolderId,
         )
+        awaitIdle()
+    }
+
+    override fun deleteFromOutbox(account: ClientAccount, subject: String) {
+        val accountDto = accountDto(account)
+        val outboxFolderId = koin.get<OutboxFolderManager>().getOutboxFolderIdSync(accountDto.uuid)
+        val item =
+            singleItem(messageListInfo(folderSearch(accountDto, outboxFolderId), threaded = false), subject, "Outbox")
+
+        // Same as LegacyMessageListFragment.onDeleteConfirmed() in the outbox's unthreaded list.
+        messagingControllerWrapper.deleteMessages(listOf(item.messageReference))
         awaitIdle()
     }
 

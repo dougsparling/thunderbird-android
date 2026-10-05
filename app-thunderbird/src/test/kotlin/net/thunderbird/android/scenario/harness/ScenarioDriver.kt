@@ -38,6 +38,12 @@ interface ScenarioDriver : AutoCloseable {
     /** The user removes the account (account settings, "Remove account"). */
     fun removeAccount(account: ClientAccount)
 
+    /**
+     * The user opens the message list of [folder] (e.g. from the folder list). Showing the list dismisses the new-mail
+     * notifications for what it shows.
+     */
+    fun openFolder(account: ClientAccount, folder: FolderPath)
+
     /** The user pulls to refresh while looking at [folder] in the message list. */
     fun pullToRefresh(account: ClientAccount, folder: FolderPath)
 
@@ -97,6 +103,9 @@ interface ScenarioDriver : AutoCloseable {
 
     /** The "Spam" action, without a confirmation dialog: moves the message to the account's spam folder. */
     fun markAsSpam(account: ClientAccount, folder: FolderPath, subject: String)
+
+    /** Deletes the message with [subject] from the app's own outbox, i.e. the user decides not to send it. */
+    fun deleteFromOutbox(account: ClientAccount, subject: String)
 
     /** "Move to Drafts": the message becomes a draft the user can edit. */
     fun moveToDrafts(account: ClientAccount, folder: FolderPath, subject: String)
