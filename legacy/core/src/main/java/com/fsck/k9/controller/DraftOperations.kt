@@ -3,8 +3,8 @@ package com.fsck.k9.controller
 import app.k9mail.legacy.mailstore.MessageStoreManager
 import app.k9mail.legacy.mailstore.SaveMessageData
 import com.fsck.k9.backend.api.Backend
-import com.fsck.k9.controller.MessagingControllerCommands.PendingAppend
-import com.fsck.k9.controller.MessagingControllerCommands.PendingReplace
+import com.fsck.k9.controller.PendingAppend
+import com.fsck.k9.controller.PendingReplace
 import com.fsck.k9.mail.FetchProfile
 import com.fsck.k9.mail.Message
 import com.fsck.k9.mail.MessageDownloadState

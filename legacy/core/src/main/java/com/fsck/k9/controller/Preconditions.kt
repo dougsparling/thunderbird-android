@@ -9,7 +9,7 @@ fun <T : Any> requireNotNull(value: T?) {
     kotlin.requireNotNull(value)
 }
 
-fun requireValidUids(uidMap: Map<String?, String?>?) {
+fun requireValidUids(uidMap: Map<String, String?>?) {
     kotlin.requireNotNull(uidMap)
     for ((sourceUid, destinationUid) in uidMap) {
         requireNotLocalUid(sourceUid)

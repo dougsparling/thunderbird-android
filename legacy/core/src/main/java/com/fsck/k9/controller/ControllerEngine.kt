@@ -1,6 +1,6 @@
 package com.fsck.k9.controller
 
-import com.fsck.k9.controller.MessagingControllerCommands.PendingCommand
+import com.fsck.k9.controller.PendingCommand
 import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.core.common.exception.MessagingException
 

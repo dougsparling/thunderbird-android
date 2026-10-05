@@ -1,6 +1,6 @@
 package net.thunderbird.feature.mail.sync.internal.engine
 
-import com.fsck.k9.controller.MessagingControllerCommands.PendingCommand
+import com.fsck.k9.controller.PendingCommand
 import com.fsck.k9.mailstore.LocalStoreProvider
 import net.thunderbird.core.android.account.LegacyAccountDto
 

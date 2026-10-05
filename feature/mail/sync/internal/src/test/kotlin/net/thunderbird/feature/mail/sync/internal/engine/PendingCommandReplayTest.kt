@@ -6,9 +6,9 @@ import assertk.assertions.containsExactly
 import assertk.assertions.isEmpty
 import assertk.assertions.isInstanceOf
 import assertk.assertions.isSameInstanceAs
-import com.fsck.k9.controller.MessagingControllerCommands.PendingCommand
-import com.fsck.k9.controller.MessagingControllerCommands.PendingExpunge
+import com.fsck.k9.controller.PendingCommand
 import com.fsck.k9.controller.PendingCommandExecutor
+import com.fsck.k9.controller.PendingExpunge
 import kotlin.test.Test
 import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.core.common.exception.MessagingException

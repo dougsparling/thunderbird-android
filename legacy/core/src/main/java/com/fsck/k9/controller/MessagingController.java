@@ -40,17 +40,17 @@ import com.fsck.k9.backend.api.Backend;
 import com.fsck.k9.backend.api.SyncConfig;
 import com.fsck.k9.backend.api.SyncListener;
 import com.fsck.k9.controller.ControllerExtension.ControllerInternals;
-import com.fsck.k9.controller.MessagingControllerCommands.PendingAppend;
-import com.fsck.k9.controller.MessagingControllerCommands.PendingCommand;
-import com.fsck.k9.controller.MessagingControllerCommands.PendingDelete;
-import com.fsck.k9.controller.MessagingControllerCommands.PendingEmptySpam;
-import com.fsck.k9.controller.MessagingControllerCommands.PendingEmptyTrash;
-import com.fsck.k9.controller.MessagingControllerCommands.PendingExpunge;
-import com.fsck.k9.controller.MessagingControllerCommands.PendingMarkAllAsRead;
-import com.fsck.k9.controller.MessagingControllerCommands.PendingMoveAndMarkAsRead;
-import com.fsck.k9.controller.MessagingControllerCommands.PendingMoveOrCopy;
-import com.fsck.k9.controller.MessagingControllerCommands.PendingReplace;
-import com.fsck.k9.controller.MessagingControllerCommands.PendingSetFlag;
+import com.fsck.k9.controller.PendingAppend;
+import com.fsck.k9.controller.PendingCommand;
+import com.fsck.k9.controller.PendingDelete;
+import com.fsck.k9.controller.PendingEmptySpam;
+import com.fsck.k9.controller.PendingEmptyTrash;
+import com.fsck.k9.controller.PendingExpunge;
+import com.fsck.k9.controller.PendingMarkAllAsRead;
+import com.fsck.k9.controller.PendingMoveAndMarkAsRead;
+import com.fsck.k9.controller.PendingMoveOrCopy;
+import com.fsck.k9.controller.PendingReplace;
+import com.fsck.k9.controller.PendingSetFlag;
 import com.fsck.k9.controller.ProgressBodyFactory.ProgressListener;
 import com.fsck.k9.core.BuildConfig;
 import com.fsck.k9.helper.MutableBoolean;
@@ -733,11 +733,37 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
 
     public void processPendingCommandsSynchronous(LegacyAccountDto account) throws MessagingException {
         try {
-            engine.processPendingCommands(account, (command, commandAccount) -> command.execute(this, commandAccount));
+            engine.processPendingCommands(account, this::executePendingCommand);
         } catch (MessagingException me) {
             notifyUserIfCertificateProblem(account, me, true);
             Log.e(me, "Could not process pending commands");
             throw me;
+        }
+    }
+
+    private void executePendingCommand(PendingCommand command, LegacyAccountDto account) throws MessagingException {
+        if (command instanceof PendingAppend) {
+            processPendingAppend((PendingAppend) command, account);
+        } else if (command instanceof PendingReplace) {
+            processPendingReplace((PendingReplace) command, account);
+        } else if (command instanceof PendingMarkAllAsRead) {
+            processPendingMarkAllAsRead((PendingMarkAllAsRead) command, account);
+        } else if (command instanceof PendingSetFlag) {
+            processPendingSetFlag((PendingSetFlag) command, account);
+        } else if (command instanceof PendingDelete) {
+            processPendingDelete((PendingDelete) command, account);
+        } else if (command instanceof PendingExpunge) {
+            processPendingExpunge((PendingExpunge) command, account);
+        } else if (command instanceof PendingMoveOrCopy) {
+            processPendingMoveOrCopy((PendingMoveOrCopy) command, account);
+        } else if (command instanceof PendingMoveAndMarkAsRead) {
+            processPendingMoveAndRead((PendingMoveAndMarkAsRead) command, account);
+        } else if (command instanceof PendingEmptySpam) {
+            processPendingEmptySpam(account);
+        } else if (command instanceof PendingEmptyTrash) {
+            processPendingEmptyTrash(account);
+        } else {
+            throw new IllegalArgumentException("Unknown pending command: " + command.getCommandName());
         }
     }
 
