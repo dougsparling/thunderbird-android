@@ -200,7 +200,10 @@ interface ScenarioDriver : AutoCloseable {
     /** The folders the user sees for [account], including local-only folders such as the outbox. */
     fun folderList(account: ClientAccount): List<ClientFolder>
 
-    /** The messages the user sees in [folder], newest first, one entry per message (no threading). */
+    /**
+     * The messages the user sees in [folder], newest first, one entry per message (no threading). Like the message
+     * list screen, showing the list checks the account for missing credentials and tells the user about them.
+     */
     fun messageList(account: ClientAccount, folder: FolderPath): List<ClientMessage>
 
     /** The messages waiting in the app's own outbox, newest first. */
@@ -229,6 +232,10 @@ data class AccountSpec(
     val smtpPassword: String,
     val checkIntervalMinutes: Int? = null,
     val notifyNewMail: Boolean = false,
+    /** The account signs in with OAuth (XOAUTH2) but the user hasn't signed in, so it has no token. */
+    val oAuthSignedOut: Boolean = false,
+    /** The incoming server requires TLS ([incomingHost] and [incomingPort] then point to its TLS port). */
+    val incomingTls: Boolean = false,
 ) {
     override fun toString() =
         "AccountSpec(email=$email, $protocol=$incomingHost:$incomingPort, smtp=$smtpHost:$smtpPort, username=$username)"

@@ -31,7 +31,13 @@ class ScenarioApplication : FeatureFlagApplication() {
 
     @OptIn(ExperimentalTime::class)
     private val scenarioOverrides = module {
-        single { ScenarioClock() }
+        single { clockAfterRestart ?: ScenarioClock() }
         single<Clock> { get<ScenarioClock>() }
+    }
+
+    internal companion object {
+        /** The clock the app keeps when [AppRestart] starts it again, so scenario time carries over. */
+        @Volatile
+        var clockAfterRestart: ScenarioClock? = null
     }
 }

@@ -138,7 +138,7 @@ internal class LegacyScenarioDriver(
                 host = spec.smtpHost,
                 port = spec.smtpPort,
                 connectionSecurity = ConnectionSecurity.NONE,
-                authenticationType = AuthType.PLAIN,
+                authenticationType = spec.authType,
                 username = spec.username,
                 password = spec.smtpPassword,
                 clientCertificateAlias = null,
@@ -167,13 +167,16 @@ internal class LegacyScenarioDriver(
         return ClientAccount(id = result.accountUuid, email = spec.email)
     }
 
+    private val AccountSpec.authType: AuthType
+        get() = if (oAuthSignedOut) AuthType.XOAUTH2 else AuthType.PLAIN
+
     private fun incomingServerSettings(spec: AccountSpec): ServerSettings = when (spec.protocol) {
         MailProtocol.IMAP -> ServerSettings(
             type = "imap",
             host = spec.incomingHost,
             port = spec.incomingPort,
-            connectionSecurity = ConnectionSecurity.NONE,
-            authenticationType = AuthType.PLAIN,
+            connectionSecurity = if (spec.incomingTls) ConnectionSecurity.SSL_TLS_REQUIRED else ConnectionSecurity.NONE,
+            authenticationType = spec.authType,
             username = spec.username,
             password = spec.password,
             clientCertificateAlias = null,
@@ -1009,7 +1012,13 @@ internal class LegacyScenarioDriver(
     }
 
     override fun messageList(account: ClientAccount, folder: FolderPath): List<ClientMessage> {
-        return messageListItems(account, folder).map { it.toClientMessage() }
+        val items = messageListItems(account, folder)
+
+        // Same as LegacyMessageListFragment when it shows messages: it checks their accounts for auth problems.
+        items.map { it.account.id }.toSet().forEach(messagingControllerWrapper::checkAuthenticationProblem)
+        awaitIdle()
+
+        return items.map { it.toClientMessage() }
     }
 
     override fun outbox(account: ClientAccount): List<ClientMessage> {

@@ -5,6 +5,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 import net.thunderbird.mail.testserver.provision.ProvisionedUser
+import net.thunderbird.mail.testserver.provision.ServerEndpoint
 import net.thunderbird.mail.testserver.provision.TestServerConfig
 import net.thunderbird.mail.testserver.proxy.FaultProxy
 import net.thunderbird.mail.testserver.proxy.NetworkRulesBuilder
@@ -59,6 +60,13 @@ interface ScenarioScope {
     fun goOnline()
 
     /**
+     * Android kills the app's process and the user opens the app again: everything the app kept in memory is gone,
+     * what it stored stays. Open connections to the server are dropped. [driver] and [device] are replaced by new
+     * instances for the restarted app.
+     */
+    fun restartApp()
+
+    /**
      * Waits until the app is listening for new mail: one of its connections has sent IDLE and the server accepted it.
      * Read from the proxy transcript, so it doesn't depend on how the app implements push.
      */
@@ -79,6 +87,7 @@ class ScenarioClient internal constructor(
     private val driverProvider: () -> ScenarioDriver,
     private val proxyProvider: (MailProtocol) -> FaultProxy,
     private val smtpProxyProvider: () -> FaultProxy,
+    private val untrustedImapsProvider: () -> ServerEndpoint,
     private val onFirstAccount: () -> Unit,
 ) {
     /**
@@ -87,7 +96,9 @@ class ScenarioClient internal constructor(
      * schedule periodic mail sync (it runs as [ScenarioDevice.advanceTime] lets time pass); without it the account
      * never syncs in the background. With [notifyNewMail] the user gets notifications for new inbox mail found by
      * background sync or push. [settings] are changed in the account settings right after setup, i.e. after the
-     * first mail check.
+     * first mail check. With [oAuthSignedOut] the account uses OAuth but the user never signed in. With
+     * [untrustedTls] the account connects over TLS to an IMAP port whose certificate the device doesn't trust (without
+     * the fault proxy, so that connection has no transcript).
      */
     fun account(
         user: ProvisionedUser,
@@ -97,15 +108,19 @@ class ScenarioClient internal constructor(
         checkIntervalMinutes: Int? = null,
         notifyNewMail: Boolean = false,
         settings: ClientAccountSettings? = null,
+        oAuthSignedOut: Boolean = false,
+        untrustedTls: Boolean = false,
     ): ClientAccount {
         onFirstAccount()
         val driver = driverProvider()
+        val untrustedImaps = if (untrustedTls) untrustedImapsProvider() else null
         val account = driver.addAccount(
             AccountSpec(
                 email = user.username,
                 protocol = protocol,
-                incomingHost = PROXY_HOST,
-                incomingPort = proxyProvider(protocol).port,
+                incomingHost = untrustedImaps?.host ?: PROXY_HOST,
+                incomingPort = untrustedImaps?.port ?: proxyProvider(protocol).port,
+                incomingTls = untrustedTls,
                 smtpHost = PROXY_HOST,
                 smtpPort = smtpProxyProvider().port,
                 username = user.username,
@@ -113,6 +128,7 @@ class ScenarioClient internal constructor(
                 smtpPassword = smtpPassword,
                 checkIntervalMinutes = checkIntervalMinutes,
                 notifyNewMail = notifyNewMail,
+                oAuthSignedOut = oAuthSignedOut,
             ),
         )
         settings?.let { driver.changeSettings(account, it) }
@@ -175,18 +191,43 @@ class ScenarioRule : TestRule {
         private val proxyDelegates = listOf(proxyDelegate, smtpProxyDelegate, pop3ProxyDelegate)
 
         // The device replaces platform parts (WorkManager) the app caches, so it's set up before the app is used.
-        private val deviceDelegate = lazy { ScenarioDevice(GlobalContext.get(), awaitAppIdle = { driver.awaitIdle() }) }
-        private val driverDelegate = lazy {
-            deviceDelegate.value
-            LegacyScenarioDriver(GlobalContext.get())
-        }
+        private var currentDevice: ScenarioDevice? = null
+        private var currentDriver: ScenarioDriver? = null
 
         override val server: ScenarioServer by serverDelegate
         override val proxy: FaultProxy by proxyDelegate
         override val smtpProxy: FaultProxy by smtpProxyDelegate
         override val pop3Proxy: FaultProxy by pop3ProxyDelegate
-        override val driver: ScenarioDriver by driverDelegate
-        override val device: ScenarioDevice by deviceDelegate
+        override val device: ScenarioDevice
+            get() = currentDevice ?: startDevice(previous = null)
+
+        override val driver: ScenarioDriver
+            get() = currentDriver ?: run {
+                device
+                LegacyScenarioDriver(GlobalContext.get()).also { currentDriver = it }
+            }
+
+        private fun startDevice(previous: ScenarioDevice?): ScenarioDevice {
+            val device = ScenarioDevice(GlobalContext.get(), awaitAppIdle = { driver.awaitIdle() }, previous = previous)
+            currentDevice = device
+            awaitAppStarted(GlobalContext.get())
+            return device
+        }
+
+        override fun restartApp() {
+            val oldDevice = device
+            driver.awaitIdle()
+            currentDriver?.close()
+            currentDriver = null
+            oldDevice.close()
+            // The process is gone, and with it every connection it had open.
+            startedProxies.forEach { it.disconnectAll(reset = true) }
+
+            AppRestart.restart(GlobalContext.get().get<android.app.Application>() as ScenarioApplication)
+            // The new device installs a new test WorkManager, which the restarted app must pick up.
+            startDevice(previous = oldDevice)
+            driver.awaitIdle()
+        }
         override val client = ScenarioClient(
             driverProvider = { driver },
             proxyProvider = { protocol ->
@@ -196,6 +237,9 @@ class ScenarioRule : TestRule {
                 }
             },
             smtpProxyProvider = { smtpProxy },
+            untrustedImapsProvider = {
+                checkNotNull(config.untrustedImaps) { "The test mail server has no untrusted TLS endpoint" }
+            },
             onFirstAccount = { device.markAppInUse() },
         )
 
@@ -279,8 +323,8 @@ class ScenarioRule : TestRule {
                 runCatching(block).exceptionOrNull()?.let(problems::add)
             }
 
-            if (driverDelegate.isInitialized()) attempt { driver.close() }
-            if (deviceDelegate.isInitialized()) attempt { device.close() }
+            currentDriver?.let { attempt { it.close() } }
+            currentDevice?.let { attempt { it.close() } }
             startedProxies.forEach { proxy -> attempt { proxy.close() } }
             if (serverDelegate.isInitialized()) {
                 // Leftover users only cost memory on the test server, so failing to delete them doesn't fail the test.

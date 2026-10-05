@@ -55,6 +55,8 @@ class ScenarioDevice internal constructor(
     koin: Koin,
     private val awaitAppIdle: () -> Unit,
     timeout: Duration = DEFAULT_TIMEOUT,
+    /** The device before the app restarted ([AppRestart]); its permissions and network state carry over. */
+    previous: ScenarioDevice? = null,
 ) : AutoCloseable {
     private val application: Application = koin.get()
     private val clock: ScenarioClock = koin.get()
@@ -77,14 +79,21 @@ class ScenarioDevice internal constructor(
      * [NetworkInfo]; the app itself only uses network callbacks and capabilities.
      */
     @Suppress("DEPRECATION")
-    private val onlineNetworkInfo: NetworkInfo =
-        checkNotNull(connectivityManager.activeNetworkInfo) { "Robolectric has no default network" }
+    private val onlineNetworkInfo: NetworkInfo = previous?.onlineNetworkInfo
+        ?: checkNotNull(connectivityManager.activeNetworkInfo) { "Robolectric has no default network" }
     private var isOnline = true
 
     init {
         startContentProviders()
-        setNetworkCapabilities()
-        AppPermission.entries.forEach { permission -> applyPermission(permission, permission.grantedByDefault) }
+        // Offline, there's no active network to give capabilities to; it gets them when the device goes online.
+        if (previous == null || previous.isOnline) setNetworkCapabilities()
+        AppPermission.entries.forEach { permission ->
+            applyPermission(permission, previous?.permissions?.get(permission) ?: permission.grantedByDefault)
+        }
+        if (previous != null) {
+            isOnline = previous.isOnline
+            appInUse = previous.appInUse
+        }
     }
 
     /**
