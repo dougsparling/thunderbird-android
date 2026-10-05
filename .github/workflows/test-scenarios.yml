@@ -1,0 +1,54 @@
+---
+name: Test - Scenarios
+
+# End-to-end scenario tests: the real app (Robolectric) against an Apache James mail server that Gradle starts.
+# See docs/scenario-tests/HANDOFF.md.
+
+on:
+  pull_request:
+    paths-ignore:
+      - '.idea/**'
+      - '.gitattributes'
+      - '.github/**.json'
+      - '.gitignore'
+      - '.gitmodules'
+      - '**.md'
+      - 'LICENSE'
+      - 'NOTICE'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scenario-tests-${{ github.ref }}-${{ github.event.pull_request.number || 'no-pr' }}
+  cancel-in-progress: true
+
+jobs:
+  scenario-tests:
+    name: Scenario tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Setup Gradle environment
+        uses: ./.github/actions/setup-gradle
+
+      - name: Run scenario tests
+        run: ./gradlew :app-thunderbird:testFossDebugUnitTest -PscenarioTests
+
+      - name: Upload test reports and server log
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scenario-test-reports
+          path: |
+            app-thunderbird/build/reports/tests/testFossDebugUnitTest/
+            app-thunderbird/build/test-results/testFossDebugUnitTest/
+            build/testserver/james/james.log
+          retention-days: 7
+          if-no-files-found: ignore
