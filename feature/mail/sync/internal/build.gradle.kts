@@ -10,6 +10,8 @@ dependencies {
     // Temporary: the implementation still works on the legacy local store, backends and notifications.
     implementation(projects.legacy.core)
 
+    api(projects.feature.mail.sync.api)
+
     implementation(projects.core.logging.api)
 
     testImplementation(projects.core.logging.testing)

@@ -133,6 +133,7 @@ include(
     ":feature:mail:message:composer:internal",
     ":feature:mail:message:list:api",
     ":feature:mail:message:list:internal",
+    ":feature:mail:sync:api",
     ":feature:mail:sync:internal",
     ":feature:mail:message:export:api",
     ":feature:mail:message:export:impl-eml",
