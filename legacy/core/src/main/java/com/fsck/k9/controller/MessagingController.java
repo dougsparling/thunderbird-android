@@ -24,6 +24,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 import app.k9mail.legacy.di.DI;
 import app.k9mail.legacy.mailstore.FolderDetailsAccessor;
+import app.k9mail.legacy.mailstore.MessageListRepository;
 import app.k9mail.legacy.mailstore.MessageStore;
 import app.k9mail.legacy.mailstore.MessageStoreManager;
 import app.k9mail.legacy.mailstore.SaveMessageData;
@@ -1011,9 +1012,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
             }
         }
 
-        for (MessagingListener l : getListeners()) {
-            l.folderStatusChanged(account, folderId);
-        }
+        notifyFolderStatusChanged(account, folderId);
 
         Backend backend = getBackend(account);
         if (backend.getSupportsFlags()) {
@@ -1089,9 +1088,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
             List<String> uids = entry.getValue();
 
             // Notify listeners of changed folder status
-            for (MessagingListener l : getListeners()) {
-                l.folderStatusChanged(account, folderId);
-            }
+            notifyFolderStatusChanged(account, folderId);
 
             if (flag == Flag.SEEN && newState) {
                 cancelNotificationsForMessages(account, folderId, uids);
@@ -1120,6 +1117,21 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
         }
     }
 
+    private void notifyFolderStatusChanged(LegacyAccountDto account, long folderId) {
+        for (MessagingListener l : getListeners()) {
+            l.folderStatusChanged(account, folderId);
+        }
+        notifyMessageStoreChanged(account);
+    }
+
+    /**
+     * Tells observers of the message store (folder counts, folder lists, the unread widget) to reload; everything that
+     * used to listen for {@link MessagingListener#folderStatusChanged} listens for this instead.
+     */
+    private void notifyMessageStoreChanged(LegacyAccountDto account) {
+        DI.get(MessageListRepository.class).notifyMessageListChanged(account.getUuid());
+    }
+
     /**
      * Set or remove a flag for a set of messages in a specific folder.
      * <p>
@@ -1138,9 +1150,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
             // Update the messages in the local store
             localFolder.setFlags(messages, Collections.singleton(flag), newState);
 
-            for (MessagingListener l : getListeners()) {
-                l.folderStatusChanged(account, folderId);
-            }
+            notifyFolderStatusChanged(account, folderId);
 
             // Handle the remote side
             if (supportsFlags(account) && !localFolder.isLocalOnly()) {
@@ -1594,9 +1604,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
             account.getUuid(),
             true
         );
-        for (MessagingListener listener : getListeners()) {
-            listener.folderStatusChanged(account, outboxFolderId);
-        }
+        notifyFolderStatusChanged(account, outboxFolderId);
     }
 
     private void handleSendFailure(LegacyAccountDto account, LocalFolder localFolder, Message message,
@@ -1778,9 +1786,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
                     if (unreadCountAffected) {
                         // If this copy operation changes the unread count in the destination
                         // folder, notify the listeners.
-                        for (MessagingListener l : getListeners()) {
-                            l.folderStatusChanged(account, destFolderId);
-                        }
+                        notifyFolderStatusChanged(account, destFolderId);
                     }
                 } else {
                     resultIdMapping = messageStore.moveMessages(messageIds, destFolderId);
@@ -1790,10 +1796,8 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
                     if (unreadCountAffected) {
                         // If this move operation changes the unread count, notify the listeners
                         // that the unread count changed in both the source and destination folder.
-                        for (MessagingListener l : getListeners()) {
-                            l.folderStatusChanged(account, srcFolderId);
-                            l.folderStatusChanged(account, destFolderId);
-                        }
+                        notifyFolderStatusChanged(account, srcFolderId);
+                        notifyFolderStatusChanged(account, destFolderId);
                     }
                 }
 
@@ -1835,9 +1839,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
                     message.destroy();
                 }
 
-                for (MessagingListener listener : getListeners()) {
-                    listener.folderStatusChanged(account, folderId);
-                }
+                notifyFolderStatusChanged(account, folderId);
             } catch (MessagingException e) {
                 Log.e(e, "Error loading message. Draft was not saved.");
             }
@@ -2012,11 +2014,9 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
                 }
             }
 
-            for (MessagingListener l : getListeners()) {
-                l.folderStatusChanged(account, folderId);
-                if (localTrashFolder != null) {
-                    l.folderStatusChanged(account, trashFolderId);
-                }
+            notifyFolderStatusChanged(account, folderId);
+            if (localTrashFolder != null) {
+                notifyFolderStatusChanged(account, trashFolderId);
             }
 
             Log.d("Delete policy for account %s is %s", account, account.getDeletePolicy());
@@ -2109,9 +2109,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
                     localFolder.destroyLocalOnlyMessages();
                     localFolder.setFlags(Collections.singleton(Flag.DELETED), true);
 
-                    for (MessagingListener l : getListeners()) {
-                        l.folderStatusChanged(account, spamFolderId);
-                    }
+                    notifyFolderStatusChanged(account, spamFolderId);
 
                     PendingCommand command = PendingEmptySpam.create();
                     queuePendingCommand(account, command);
@@ -2166,9 +2164,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
                         localFolder.setFlags(Collections.singleton(Flag.DELETED), true);
                     }
 
-                    for (MessagingListener l : getListeners()) {
-                        l.folderStatusChanged(account, trashFolderId);
-                    }
+                    notifyFolderStatusChanged(account, trashFolderId);
 
                     if (!isTrashLocalOnly) {
                         PendingCommand command = PendingEmptyTrash.create();
@@ -2725,6 +2721,7 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
             for (MessagingListener messagingListener : getListeners(listener)) {
                 messagingListener.folderStatusChanged(account, folderId);
             }
+            notifyMessageStoreChanged(account);
         }
 
         private LocalMessage loadMessage(String folderServerId, String messageServerId) {

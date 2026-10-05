@@ -19,8 +19,8 @@ import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 val legacyCommonAppModule = module {
-    single<MessagingListenerProvider> {
-        DefaultMessagingListenerProvider(
+    single<MessageListChangedListenerProvider> {
+        DefaultMessageListChangedListenerProvider(
             listeners = listOf(
                 get<UnreadWidgetUpdateListener>(),
             ),

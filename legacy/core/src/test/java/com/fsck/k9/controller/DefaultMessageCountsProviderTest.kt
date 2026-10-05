@@ -4,10 +4,8 @@ import app.cash.turbine.test
 import app.k9mail.legacy.mailstore.ListenableMessageStore
 import app.k9mail.legacy.mailstore.MessageStoreManager
 import app.k9mail.legacy.message.controller.MessageCounts
-import app.k9mail.legacy.message.controller.MessagingControllerRegistry
-import app.k9mail.legacy.message.controller.MessagingListener
-import app.k9mail.legacy.message.controller.SimpleMessagingListener
 import assertk.assertThat
+import com.fsck.k9.mailstore.DefaultMessageListRepository
 import assertk.assertions.isEqualTo
 import kotlinx.coroutines.test.runTest
 import net.thunderbird.account.fake.FakeAccountData.ACCOUNT_ID_RAW
@@ -43,12 +41,10 @@ class DefaultMessageCountsProviderTest {
         on { getMessageStore(account) } doReturn messageStore
     }
 
-    private val messagingControllerRegistry = mock<MessagingControllerRegistry> {}
-
     private val messageCountsProvider = DefaultMessageCountsProvider(
         accountManager = accountManager,
         messageStoreManager = messageStoreManager,
-        messagingControllerRegistry = messagingControllerRegistry,
+        messageListRepository = DefaultMessageListRepository(messageStoreManager),
         outboxFolderManager = FakeOutboxFolderManager(),
     )
 
@@ -68,16 +64,6 @@ class DefaultMessageCountsProviderTest {
 
     @Test
     fun `getMessageCountsFlow should emit for every change`() = runTest {
-        var currentListener: SimpleMessagingListener? = null
-        val registry = object : MessagingControllerRegistry {
-            override fun addListener(listener: MessagingListener) {
-                currentListener = listener as SimpleMessagingListener
-            }
-
-            override fun removeListener(listener: MessagingListener) {
-                currentListener = null
-            }
-        }
         var currentCount = 0
         val messageStore = mock<ListenableMessageStore> {
             on {
@@ -90,10 +76,11 @@ class DefaultMessageCountsProviderTest {
         val messageStoreManager = mock<MessageStoreManager> {
             on { getMessageStore(account) } doReturn messageStore
         }
+        val messageListRepository = DefaultMessageListRepository(messageStoreManager)
         val testSubject = DefaultMessageCountsProvider(
             accountManager = accountManager,
             messageStoreManager = messageStoreManager,
-            messagingControllerRegistry = registry,
+            messageListRepository = messageListRepository,
             outboxFolderManager = FakeOutboxFolderManager(),
         )
         val search = LocalMessageSearch().apply {
@@ -103,10 +90,10 @@ class DefaultMessageCountsProviderTest {
         testSubject.getMessageCountsFlow(search).test {
             assertThat(awaitItem()).isEqualTo(MessageCounts(0, 0))
             currentCount = 1
-            currentListener?.folderStatusChanged(account, 0)
+            messageListRepository.notifyMessageListChanged(account.uuid)
             assertThat(awaitItem()).isEqualTo(MessageCounts(1, 1))
             currentCount = 2
-            currentListener?.folderStatusChanged(account, 0)
+            messageListRepository.notifyMessageListChanged(account.uuid)
             assertThat(awaitItem()).isEqualTo(MessageCounts(2, 2))
         }
     }

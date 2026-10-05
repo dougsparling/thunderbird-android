@@ -1,10 +1,10 @@
 package com.fsck.k9.controller
 
+import app.k9mail.legacy.mailstore.MessageListChangedListener
+import app.k9mail.legacy.mailstore.MessageListRepository
 import app.k9mail.legacy.mailstore.MessageStoreManager
 import app.k9mail.legacy.message.controller.MessageCounts
 import app.k9mail.legacy.message.controller.MessageCountsProvider
-import app.k9mail.legacy.message.controller.MessagingControllerRegistry
-import app.k9mail.legacy.message.controller.SimpleMessagingListener
 import com.fsck.k9.search.excludeSpecialFolders
 import com.fsck.k9.search.getAccounts
 import com.fsck.k9.search.limitToDisplayableFolders
@@ -12,12 +12,12 @@ import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.core.android.account.LegacyAccountDtoManager
 import net.thunderbird.legacy.logging.Log
@@ -29,7 +29,7 @@ import net.thunderbird.feature.search.legacy.SearchConditionTreeNode
 internal class DefaultMessageCountsProvider(
     private val accountManager: LegacyAccountDtoManager,
     private val messageStoreManager: MessageStoreManager,
-    private val messagingControllerRegistry: MessagingControllerRegistry,
+    private val messageListRepository: MessageListRepository,
     private val outboxFolderManager: OutboxFolderManager,
     private val coroutineContext: CoroutineContext = Dispatchers.IO,
 ) : MessageCountsProvider {
@@ -77,20 +77,18 @@ internal class DefaultMessageCountsProvider(
     }
 
     override fun getMessageCountsFlow(search: LocalMessageSearch): Flow<MessageCounts> {
+        // Listeners are called by whoever writes to the message store, so they only signal a change; the counts are
+        // loaded here, once for any number of changes made while the previous load ran.
         return callbackFlow {
-            send(getMessageCounts(search))
-
-            val folderStatusChangedListener = object : SimpleMessagingListener() {
-                override fun folderStatusChanged(account: LegacyAccountDto, folderId: Long) {
-                    trySendBlocking(getMessageCounts(search))
-                }
-            }
-            messagingControllerRegistry.addListener(folderStatusChangedListener)
+            val messageListChangedListener = MessageListChangedListener { trySend(Unit) }
+            messageListRepository.addListener(messageListChangedListener)
+            send(Unit)
 
             awaitClose {
-                messagingControllerRegistry.removeListener(folderStatusChangedListener)
+                messageListRepository.removeListener(messageListChangedListener)
             }
         }.buffer(capacity = Channel.CONFLATED)
+            .map { getMessageCounts(search) }
             .distinctUntilChanged()
             .flowOn(coroutineContext)
     }

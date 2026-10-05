@@ -2,21 +2,20 @@ package app.k9mail.legacy.ui.folder
 
 import app.k9mail.legacy.mailstore.FolderSettingsChangedListener
 import app.k9mail.legacy.mailstore.FolderTypeMapper
+import app.k9mail.legacy.mailstore.MessageListChangedListener
+import app.k9mail.legacy.mailstore.MessageListRepository
 import app.k9mail.legacy.mailstore.MessageStoreManager
-import app.k9mail.legacy.message.controller.MessagingControllerRegistry
-import app.k9mail.legacy.message.controller.SimpleMessagingListener
 import java.text.Collator
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.map
 import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.core.android.account.LegacyAccountDtoManager
 import net.thunderbird.feature.mail.folder.api.Folder
@@ -26,7 +25,7 @@ import com.fsck.k9.mail.FolderType as LegacyFolderType
 
 class DefaultDisplayFolderRepository(
     private val accountManager: LegacyAccountDtoManager,
-    private val messagingController: MessagingControllerRegistry,
+    private val messageListRepository: MessageListRepository,
     private val messageStoreManager: MessageStoreManager,
     private val outboxFolderManager: OutboxFolderManager,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -75,31 +74,26 @@ class DefaultDisplayFolderRepository(
     ): Flow<List<DisplayFolder>> {
         val messageStore = messageStoreManager.getMessageStore(account.uuid)
 
+        // Listeners are called by whoever writes to the message store, so they only signal a change; the folders are
+        // loaded here, once for any number of changes made while the previous load ran.
         return callbackFlow {
-            val outboxFolderId = outboxFolderManager.getOutboxFolderId(account.id)
-            send(getDisplayFolders(account, outboxFolderId, includeHiddenFolders))
+            val messageListChangedListener = MessageListChangedListener { trySend(Unit) }
+            messageListRepository.addListener(account.uuid, messageListChangedListener)
 
-            val folderStatusChangedListener = object : SimpleMessagingListener() {
-                override fun folderStatusChanged(statusChangedAccount: LegacyAccountDto, folderId: Long) {
-                    if (statusChangedAccount.uuid == account.uuid) {
-                        trySendBlocking(getDisplayFolders(account, outboxFolderId, includeHiddenFolders))
-                    }
-                }
-            }
-            messagingController.addListener(folderStatusChangedListener)
-
-            val folderSettingsChangedListener = FolderSettingsChangedListener {
-                withContext(ioDispatcher) {
-                    trySendBlocking(getDisplayFolders(account, outboxFolderId, includeHiddenFolders))
-                }
-            }
+            val folderSettingsChangedListener = FolderSettingsChangedListener { trySend(Unit) }
             messageStore.addFolderSettingsChangedListener(folderSettingsChangedListener)
 
+            send(Unit)
+
             awaitClose {
-                messagingController.removeListener(folderStatusChangedListener)
+                messageListRepository.removeListener(messageListChangedListener)
                 messageStore.removeFolderSettingsChangedListener(folderSettingsChangedListener)
             }
         }.buffer(capacity = Channel.CONFLATED)
+            .map {
+                val outboxFolderId = outboxFolderManager.getOutboxFolderId(account.id)
+                getDisplayFolders(account, outboxFolderId, includeHiddenFolders)
+            }
             .distinctUntilChanged()
             .flowOn(ioDispatcher)
     }

@@ -1,5 +1,6 @@
 package app.k9mail.feature.widget.unread
 
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 val unreadWidgetModule = module {
@@ -32,6 +33,7 @@ val unreadWidgetModule = module {
         UnreadWidgetUpdateListener(
             unreadWidgetUpdater = get(),
             logger = get(),
+            coroutineScope = get(named("AppCoroutineScope")),
         )
     }
     single { UnreadWidgetMigrations(accountRepository = get(), folderQueryRepository = get()) }
