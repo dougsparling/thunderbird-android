@@ -143,7 +143,7 @@ class RemoteWorkSerializer(
     }
 }
 
-/** Creates threads with background priority, like the thread the legacy `MessagingController` used. */
+/** Creates threads with background priority, like the thread the removed `MessagingController` used. */
 private class BackgroundThreadFactory(private val name: String) : ThreadFactory {
     override fun newThread(runnable: Runnable): Thread {
         return Thread(

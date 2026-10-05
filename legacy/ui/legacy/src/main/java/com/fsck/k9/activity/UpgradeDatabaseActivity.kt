@@ -42,7 +42,7 @@ import org.koin.android.ext.android.inject
  * this activity.
  *
  * Notes:
- * Currently we make no attempts to stop the background code (e.g. [com.fsck.k9.controller.MessagingController]) from
+ * Currently we make no attempts to stop the background code (e.g. mail sync) from
  * opening the accounts' databases. If this happens the upgrade is performed in one of the
  * background threads and not by [DatabaseUpgradeService]. But this is not a problem. Due to
  * the locking in [com.fsck.k9.mailstore.LocalStoreProvider.getInstance] the upgrade service will block
