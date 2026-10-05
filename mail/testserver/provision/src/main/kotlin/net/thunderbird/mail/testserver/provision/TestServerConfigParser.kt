@@ -28,13 +28,8 @@ internal fun parseTestServerConfig(property: (String) -> String?): TestServerCon
     val domain = required(DOMAIN)?.lowercase()?.let { value ->
         value.takeIf { DOMAIN_PATTERN.matches(it) } ?: null.also { errors += "$DOMAIN is not a valid domain: '$value'" }
     }
-    fun optionalEndpoint(name: String): ServerEndpoint? =
-        property(name)?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
-            parseHostAndPort(value)?.let { (host, port) -> ServerEndpoint(host, port) }
-                ?: null.also { errors += "$name must be host:port, was '$value'" }
-        }
-    val smtp = optionalEndpoint(SMTP)
-    val pop3 = optionalEndpoint(POP3)
+    val smtp = parseOptionalEndpoint(SMTP, property, errors)
+    val pop3 = parseOptionalEndpoint(POP3, property, errors)
     val adminUrl = property(ADMIN)?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
         value.takeIf { isHttpUrl(it) } ?: null.also { errors += "$ADMIN must be an http(s) URL, was '$value'" }
     }
@@ -54,6 +49,18 @@ internal fun parseTestServerConfig(property: (String) -> String?): TestServerCon
         smtp = smtp,
         pop3 = pop3,
     )
+}
+
+/** Reads the optional `host:port` property [name]; adds to [errors] and returns null if it's malformed. */
+private fun parseOptionalEndpoint(
+    name: String,
+    property: (String) -> String?,
+    errors: MutableList<String>,
+): ServerEndpoint? {
+    val value = property(name)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val hostAndPort = parseHostAndPort(value)
+    if (hostAndPort == null) errors += "$name must be host:port, was '$value'"
+    return hostAndPort?.let { (host, port) -> ServerEndpoint(host, port) }
 }
 
 /** Parses `host:port` or `[ipv6]:port`. */
