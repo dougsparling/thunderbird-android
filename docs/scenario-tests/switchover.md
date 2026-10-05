@@ -100,10 +100,9 @@ first (the connection is metered: build the list of what's missing, then ask the
    adapters, and the mapping shows all ten `Pending*` classes and their `*JsonAdapter`s under their own names. Not
    checked at runtime: a release build reading pending commands written by an older version (needs a device).
 2. **Code coverage (done).** `legacy:core`: 47.87 % branch, 53.81 % line (minimums 41 % / 46 %), `koverVerify`
-   passes. `-PcodeCoverageDisabled=false` has no effect: `CodeCoverageExtension.initialize()` sets the `disabled`
-   convention to `true` after the plugin set it from the property, so Kover's tasks are always skipped. The numbers
-   came from temporarily adding `disabled = false` to `legacy/core`'s `codeCoverage { }` block. The bug is on `main`
-   (since `a6b58321a1`); not fixed here.
+   passes. `-PcodeCoverageDisabled=false` used to have no effect (a bug on `main` since `a6b58321a1`:
+   `CodeCoverageExtension.initialize()` reset the `disabled` convention to `true`); fixed in `f17836d273`, which can be
+   cherry-picked onto `main` on its own.
 3. **Tests that weren't run:** unit tests of `:legacy:message` (6), `:legacy:ui:legacy` (270) and
    `:feature:navigation:drawer:dropdown` (37) now pass. Still not run: the full `./gradlew lint` and
    `connectedAndroidTest` (needs a device or emulator).
