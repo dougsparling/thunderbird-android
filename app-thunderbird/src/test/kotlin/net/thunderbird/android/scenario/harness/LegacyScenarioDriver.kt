@@ -8,34 +8,36 @@ import app.k9mail.feature.account.edit.AccountEditExternalContract.AccountServer
 import app.k9mail.feature.account.edit.AccountEditExternalContract.AccountUpdaterResult
 import app.k9mail.feature.account.setup.AccountSetupExternalContract.AccountCreator
 import app.k9mail.feature.account.setup.AccountSetupExternalContract.AccountCreator.AccountCreatorResult
-import app.k9mail.legacy.message.controller.SimpleMessagingListener
+import app.k9mail.legacy.message.controller.MessageReference
 import app.k9mail.legacy.ui.folder.DisplayFolder
 import app.k9mail.legacy.ui.folder.DisplayFolderRepository
 import com.fsck.k9.Preferences
-import com.fsck.k9.controller.MessagingController
-import com.fsck.k9.controller.MessagingControllerWrapper
+import com.fsck.k9.activity.MessageBodyDownloader
+import com.fsck.k9.activity.compose.MessageComposeOperations
 import com.fsck.k9.controller.push.PushController
 import com.fsck.k9.mail.Address
 import com.fsck.k9.mail.AuthType
 import com.fsck.k9.mail.ConnectionSecurity
 import com.fsck.k9.mail.Message
 import com.fsck.k9.mail.Message.RecipientType
-import com.fsck.k9.mail.Part
 import com.fsck.k9.mail.ServerSettings
 import com.fsck.k9.mail.internet.MimeMessage
 import com.fsck.k9.mail.internet.MimeUtility
 import com.fsck.k9.mail.store.imap.ImapStoreSettings
 import com.fsck.k9.mailstore.LocalMessage
+import com.fsck.k9.mailstore.LocalMessageReader
 import com.fsck.k9.mailstore.MessageViewInfo
 import com.fsck.k9.mailstore.MessageViewInfoExtractorFactory
 import com.fsck.k9.message.MessageBuilder
 import com.fsck.k9.message.QuotedTextMode
 import com.fsck.k9.message.SimpleMessageBuilder
 import com.fsck.k9.message.SimpleMessageFormat
+import com.fsck.k9.ui.helper.launchUserChange
 import com.fsck.k9.ui.messagelist.MessageListConfig
 import com.fsck.k9.ui.messagelist.MessageListInfo
 import com.fsck.k9.ui.messagelist.MessageListItem
 import com.fsck.k9.ui.messagelist.MessageListLoader
+import com.fsck.k9.ui.messageview.AttachmentLoadingController
 import com.fsck.k9.ui.settings.account.AccountSettingsDataStoreFactory
 import java.util.Date
 import java.util.UUID
@@ -44,7 +46,10 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
 import net.thunderbird.components.core.outcome.fold
 import net.thunderbird.core.android.account.DeletePolicy
@@ -64,6 +69,15 @@ import net.thunderbird.feature.mail.folder.api.OutboxFolderManager
 import net.thunderbird.feature.mail.folder.api.data.repository.FolderDetailsRepository
 import net.thunderbird.feature.mail.folder.api.getOutboxFolderIdSync
 import net.thunderbird.feature.mail.message.reader.api.html.MessageReaderHtmlSettingsProvider
+import net.thunderbird.feature.mail.sync.api.MailSynchronizer
+import net.thunderbird.feature.mail.sync.api.MessageCapabilities
+import net.thunderbird.feature.mail.sync.api.MessageDeleteRepository
+import net.thunderbird.feature.mail.sync.api.MessageFlagRepository
+import net.thunderbird.feature.mail.sync.api.MessageMoveRepository
+import net.thunderbird.feature.mail.sync.api.NewMailNotifications
+import net.thunderbird.feature.mail.sync.api.OutboxSender
+import net.thunderbird.feature.mail.sync.api.RemoteContentRepository
+import net.thunderbird.feature.mail.sync.api.RemoteSearchEvent
 import net.thunderbird.feature.search.legacy.LocalMessageSearch
 import net.thunderbird.feature.search.legacy.SearchAccount
 import net.thunderbird.feature.search.legacy.api.MessageSearchField
@@ -74,24 +88,24 @@ import org.koin.core.Koin
 import org.koin.core.qualifier.named
 
 /**
- * [ScenarioDriver] for the current app, built on the legacy `MessagingController` sync core.
+ * [ScenarioDriver] for the current app.
  *
  * Actions make the same calls as the UI:
  * - account setup goes through the app's [AccountCreator], the last step of the setup wizard; settings changes go
  *   through the account settings screen's data store, account removal through [BackgroundAccountRemover],
  * - pull to refresh and the message actions (flags, delete, archive, move, copy, spam, mark all read, empty trash and
- *   spam, expunge, load more, remote search, thread actions) go through [MessagingControllerWrapper] like
+ *   spam, expunge, load more, remote search, thread actions) make the same calls as
  *   `LegacyMessageListFragment`, the message list shown while the `enable_message_list_new_state` feature flag is off
  *   (the default); unthreaded unless an action says it acts on a thread,
  * - opening a message, downloading its body and its attachments follow `MessageViewFragment`,
  *   `MessageLoaderHelper` and `AttachmentController`,
  * - sending and drafts follow `MessageCompose` (its `SendMessageTask` and `SaveMessageTask`), with the message built
  *   by the same [SimpleMessageBuilder],
- * - refreshing folders calls [MessagingController.refreshFolderList] like `ManageFoldersFragment`; folder settings
+ * - refreshing folders calls [MailSynchronizer.requestFolderListRefresh] like `ManageFoldersFragment`; folder settings
  *   follow `FolderSettingsDataStore` and `FolderSettingsViewModel`,
  * - changing a password goes through [AccountServerSettingsUpdater] like the "save" step of the server settings
  *   screens,
- * - "sync all accounts" calls `checkMail` like the drawer's `SyncAllAccounts`,
+ * - "sync all accounts" calls [MailSynchronizer.checkMail] like the drawer's `SyncAllAccounts`,
  * - the folder list comes from [DisplayFolderRepository], like the folder drawer,
  * - message lists come from [MessageListLoader], like the message list screen (by date, newest first).
  *
@@ -102,6 +116,8 @@ import org.koin.core.qualifier.named
  * `folder("Archive", specialUse = SpecialUse.ARCHIVE)`. The same refresh enables notifications for the inbox, so
  * [AccountSpec.notifyNewMail] is all it takes for new inbox mail to notify the user.
  *
+ * Changes the UI starts with `launchUserChange` are started the same way, on the main thread.
+ *
  * After every action the driver waits until the app has run all follow-up work, see [RemoteWorkQueue].
  */
 @Suppress("TooManyFunctions", "LargeClass")
@@ -111,13 +127,19 @@ internal class LegacyScenarioDriver(
 ) : ScenarioDriver {
     private val accountCreator: AccountCreator = koin.get()
     private val preferences: Preferences = koin.get()
-    private val messagingController: MessagingController = koin.get()
-    private val messagingControllerWrapper: MessagingControllerWrapper = koin.get()
+    private val capabilities: MessageCapabilities = koin.get()
+    private val flagRepository: MessageFlagRepository = koin.get()
+    private val moveRepository: MessageMoveRepository = koin.get()
+    private val deleteRepository: MessageDeleteRepository = koin.get()
+    private val mailSynchronizer: MailSynchronizer = koin.get()
+    private val outboxSender: OutboxSender = koin.get()
+    private val remoteContent: RemoteContentRepository = koin.get()
+    private val newMailNotifications: NewMailNotifications = koin.get()
+    private val localMessageReader: LocalMessageReader = koin.get()
+    private val messageComposeOperations: MessageComposeOperations = koin.get()
+    private val appCoroutineScope: CoroutineScope = koin.get(named("AppCoroutineScope"))
     private val displayFolderRepository: DisplayFolderRepository = koin.get()
     private val messageListLoader: MessageListLoader = koin.get()
-
-    // The message list passes its own listener for progress updates; scenarios read results from the UI's data sources.
-    private val uiListener = object : SimpleMessagingListener() {}
 
     private val pump = MainLooperPump(timeout)
     private val remoteWorkQueue = RemoteWorkQueue(koin.get())
@@ -260,7 +282,7 @@ internal class LegacyScenarioDriver(
         val accountDto = accountDto(account)
 
         // Same as MessageHomeActivity.onMessageListDisplayed() for the search of one folder of one account.
-        messagingController.clearNotifications(folderSearch(accountDto, folderId(accountDto, folder)))
+        newMailNotifications.clearForMessageList(folderSearch(accountDto, folderId(accountDto, folder)))
         awaitIdle()
     }
 
@@ -274,25 +296,20 @@ internal class LegacyScenarioDriver(
         val folderId = folderId(accountDto, folder)
 
         // Same calls as LegacyMessageListFragment.checkMail() when it shows a single folder of a single account.
-        messagingControllerWrapper.synchronizeMailbox(accountDto.id, folderId, false, uiListener)
-        messagingControllerWrapper.sendPendingMessages(accountDto.id, uiListener)
+        mailSynchronizer.requestFolderSync(accountDto.id, folderId, notify = false)
+        outboxSender.requestSendPending(accountDto.id)
     }
 
     override fun syncAllAccounts() {
         // Same as the drawer's SyncAllAccounts use case.
-        val finished = CountDownLatch(1)
-        messagingController.checkMail(
-            null,
-            true,
-            true,
-            true,
-            object : SimpleMessagingListener() {
-                override fun checkMailFinished(context: android.content.Context?, account: LegacyAccountDto?) {
-                    finished.countDown()
-                }
-            },
-        )
-        pump.awaitCondition("checking mail for all accounts") { finished.count == 0L }
+        runSuspending("checking mail for all accounts") {
+            mailSynchronizer.checkMail(
+                accountId = null,
+                ignoreLastCheckedTime = true,
+                useManualWakeLock = true,
+                notify = true,
+            )
+        }
         awaitIdle()
     }
 
@@ -339,7 +356,8 @@ internal class LegacyScenarioDriver(
     override fun clearLocalMessages(account: ClientAccount, folder: FolderPath) {
         val accountDto = accountDto(account)
         // Same as confirming "Clear local messages" in FolderSettingsViewModel.
-        messagingController.clearFolder(accountDto, folderId(accountDto, folder))
+        val folderId = folderId(accountDto, folder)
+        runSuspending("clearing local messages") { deleteRepository.clearLocalMessages(accountDto.id, folderId) }
         awaitIdle()
     }
 
@@ -358,7 +376,7 @@ internal class LegacyScenarioDriver(
     /** Same call as LegacyMessageListFragment.setFlag() for a message that isn't shown as a thread. */
     private fun setFlag(account: ClientAccount, folder: FolderPath, subject: String, flag: Flag, newState: Boolean) {
         val item = messageListItem(account, folder, subject)
-        messagingControllerWrapper.setFlag(item.account.id, listOf(item.databaseId), flag, newState)
+        userChange { flagRepository.update(item.account.id, listOf(item.databaseId), flag, newState) }
         awaitIdle()
     }
 
@@ -367,7 +385,7 @@ internal class LegacyScenarioDriver(
 
         // Same as LegacyMessageListFragment.onDeleteConfirmed() in the unthreaded list; the swipe action and the menu
         // both end up there, and confirming deletes is off by default.
-        messagingControllerWrapper.deleteMessages(listOf(item.messageReference))
+        userChange { deleteRepository.delete(listOf(item.messageReference)) }
         awaitIdle()
     }
 
@@ -377,7 +395,7 @@ internal class LegacyScenarioDriver(
         checkCopyOrMovePossible(item, FolderOperation.MOVE)
 
         // Same as LegacyMessageListFragment.onArchive() in the unthreaded list.
-        messagingControllerWrapper.archiveMessages(listOf(item.messageReference))
+        userChange { moveRepository.archive(listOf(item.messageReference)) }
         awaitIdle()
     }
 
@@ -408,18 +426,18 @@ internal class LegacyScenarioDriver(
 
         val id = item.account.id
         val references = listOf(item.messageReference)
-        when (operation) {
-            FolderOperation.MOVE if threaded ->
-                messagingControllerWrapper.moveMessagesInThread(id, item.folderId, references, destinationFolderId)
+        userChange {
+            when (operation) {
+                FolderOperation.MOVE if threaded ->
+                    moveRepository.moveThreads(id, item.folderId, references, destinationFolderId)
 
-            FolderOperation.MOVE ->
-                messagingControllerWrapper.moveMessages(id, item.folderId, references, destinationFolderId)
+                FolderOperation.MOVE -> moveRepository.move(id, item.folderId, references, destinationFolderId)
 
-            FolderOperation.COPY if threaded ->
-                messagingControllerWrapper.copyMessagesInThread(id, item.folderId, references, destinationFolderId)
+                FolderOperation.COPY if threaded ->
+                    moveRepository.copyThreads(id, item.folderId, references, destinationFolderId)
 
-            FolderOperation.COPY ->
-                messagingControllerWrapper.copyMessages(id, item.folderId, references, destinationFolderId)
+                FolderOperation.COPY -> moveRepository.copy(id, item.folderId, references, destinationFolderId)
+            }
         }
         awaitIdle()
     }
@@ -430,12 +448,9 @@ internal class LegacyScenarioDriver(
         checkCopyOrMovePossible(item, FolderOperation.MOVE)
 
         // Same as LegacyMessageListFragment.onSpamConfirmed(): a move to the account's spam folder.
-        messagingControllerWrapper.moveMessages(
-            item.account.id,
-            item.folderId,
-            listOf(item.messageReference),
-            spamFolderId,
-        )
+        userChange {
+            moveRepository.move(item.account.id, item.folderId, listOf(item.messageReference), spamFolderId)
+        }
         awaitIdle()
     }
 
@@ -446,7 +461,7 @@ internal class LegacyScenarioDriver(
             singleItem(messageListInfo(folderSearch(accountDto, outboxFolderId), threaded = false), subject, "Outbox")
 
         // Same as LegacyMessageListFragment.onDeleteConfirmed() in the outbox's unthreaded list.
-        messagingControllerWrapper.deleteMessages(listOf(item.messageReference))
+        userChange { deleteRepository.delete(listOf(item.messageReference)) }
         awaitIdle()
     }
 
@@ -454,7 +469,7 @@ internal class LegacyScenarioDriver(
         val item = messageListItem(account, folder, subject)
 
         // Same as LegacyMessageListFragment.onMoveToDraftsFolder().
-        messagingControllerWrapper.moveToDraftsFolder(item.account.id, item.folderId, listOf(item.messageReference))
+        userChange { moveRepository.moveToDrafts(item.account.id, item.folderId, listOf(item.messageReference)) }
         awaitIdle()
     }
 
@@ -473,11 +488,11 @@ internal class LegacyScenarioDriver(
 
             SelectionAction.UNSTAR -> setFlagForSelected(items, Flag.FLAGGED, false)
 
-            SelectionAction.DELETE -> messagingControllerWrapper.deleteMessages(references)
+            SelectionAction.DELETE -> userChange { deleteRepository.delete(references) }
 
             SelectionAction.ARCHIVE -> {
                 items.forEach { checkCopyOrMovePossible(it, FolderOperation.MOVE) }
-                messagingControllerWrapper.archiveMessages(references)
+                userChange { moveRepository.archive(references) }
             }
         }
         awaitIdle()
@@ -487,7 +502,8 @@ internal class LegacyScenarioDriver(
     private fun setFlagForSelected(items: List<MessageListItem>, flag: Flag, newState: Boolean) {
         for ((_, itemsInAccount) in items.groupBy { it.account.uuid }) {
             val accountId = itemsInAccount.first().account.id
-            messagingControllerWrapper.setFlag(accountId, itemsInAccount.map { it.databaseId }, flag, newState)
+            val messageIds = itemsInAccount.map { it.databaseId }
+            userChange { flagRepository.update(accountId, messageIds, flag, newState) }
         }
     }
 
@@ -498,7 +514,7 @@ internal class LegacyScenarioDriver(
         val folderId = displayFolder.folder.id
 
         // Same as LegacyMessageListFragment.markAllAsRead() when showing one folder of one account.
-        messagingControllerWrapper.markAllMessagesRead(accountDto.id, folderId)
+        userChange { flagRepository.markAllAsRead(accountDto.id, folderId) }
         awaitIdle()
     }
 
@@ -507,7 +523,7 @@ internal class LegacyScenarioDriver(
         checkNotNull(accountDto.trashFolderId) { "${account.email} has no trash folder, so there's no \"Empty trash\"" }
 
         // Same as confirming the "Empty trash" dialog in LegacyMessageListFragment.
-        messagingControllerWrapper.emptyTrash(accountDto.id)
+        userChange { deleteRepository.emptyTrash(accountDto.id) }
         awaitIdle()
     }
 
@@ -516,18 +532,19 @@ internal class LegacyScenarioDriver(
         checkNotNull(accountDto.spamFolderId) { "${account.email} has no spam folder, so there's no \"Empty spam\"" }
 
         // Same as confirming the "Empty spam" dialog in LegacyMessageListFragment.
-        messagingControllerWrapper.emptySpam(accountDto.id)
+        userChange { deleteRepository.emptySpam(accountDto.id) }
         awaitIdle()
     }
 
     override fun expunge(account: ClientAccount, folder: FolderPath) {
         val accountDto = accountDto(account)
-        check(messagingControllerWrapper.supportsExpunge(accountDto.id)) {
+        check(capabilities.supportsExpunge(accountDto.id)) {
             "${account.email} can't expunge, so the message list has no \"Expunge\""
         }
 
         // Same as LegacyMessageListFragment.onExpunge().
-        messagingControllerWrapper.expunge(accountDto.id, folderId(accountDto, folder))
+        val folderId = folderId(accountDto, folder)
+        userChange { deleteRepository.expunge(accountDto.id, folderId) }
         awaitIdle()
     }
 
@@ -539,7 +556,7 @@ internal class LegacyScenarioDriver(
         }
 
         // Same as LegacyMessageListFragment.onFooterClicked() for a folder with more messages on the server.
-        messagingControllerWrapper.loadMoreMessages(accountDto.id, folderId)
+        mailSynchronizer.requestMoreMessages(accountDto.id, folderId)
         awaitIdle()
     }
 
@@ -558,7 +575,7 @@ internal class LegacyScenarioDriver(
         val item = threadListItem(account, folder, subject)
 
         // Same as LegacyMessageListFragment.onDeleteConfirmed() in the threaded list.
-        messagingControllerWrapper.deleteThreads(listOf(item.messageReference))
+        userChange { deleteRepository.deleteThreads(listOf(item.messageReference)) }
         awaitIdle()
     }
 
@@ -568,7 +585,7 @@ internal class LegacyScenarioDriver(
         checkCopyOrMovePossible(item, FolderOperation.MOVE)
 
         // Same as LegacyMessageListFragment.onArchive() in the threaded list.
-        messagingControllerWrapper.archiveThreads(listOf(item.messageReference))
+        userChange { moveRepository.archiveThreads(listOf(item.messageReference)) }
         awaitIdle()
     }
 
@@ -592,9 +609,9 @@ internal class LegacyScenarioDriver(
     private fun setThreadFlag(account: ClientAccount, folder: FolderPath, subject: String, flag: Flag, state: Boolean) {
         val item = threadListItem(account, folder, subject)
         if (item.threadCount > 1) {
-            messagingControllerWrapper.setFlagForThreads(item.account.id, listOf(item.threadRoot), flag, state)
+            userChange { flagRepository.updateThreads(item.account.id, listOf(item.threadRoot), flag, state) }
         } else {
-            messagingControllerWrapper.setFlag(item.account.id, listOf(item.databaseId), flag, state)
+            userChange { flagRepository.update(item.account.id, listOf(item.databaseId), flag, state) }
         }
         awaitIdle()
     }
@@ -606,12 +623,12 @@ internal class LegacyScenarioDriver(
         // MessageLoaderHelper loads the message from the database and downloads it if nothing of it is there yet.
         var message = loadLocalMessage(accountDto, item)
         if (!message.isSet(Flag.X_DOWNLOADED_FULL) && !message.isSet(Flag.X_DOWNLOADED_PARTIAL)) {
-            downloadMessage(accountDto, item, complete = false)
+            downloadMessage(item, complete = false)
             message = loadLocalMessage(accountDto, item)
         }
 
         // MessageViewFragment marks the message as opened once it's shown (onResume).
-        messagingController.markMessageAsOpened(accountDto, message)
+        userChange { flagRepository.markAsOpened(item.messageReference) }
         awaitIdle()
 
         return messageContent(extractForView(message))
@@ -627,32 +644,19 @@ internal class LegacyScenarioDriver(
 
         val accountDto = accountDto(account)
         val item = messageListItem(account, folder, subject)
-        downloadMessage(accountDto, item, complete = true)
+        downloadMessage(item, complete = true)
         return messageContent(extractForView(loadLocalMessage(accountDto, item)))
     }
 
-    /** Same as MessageLoaderHelper.startDownloadingMessageBody(); waits for its listener. */
-    private fun downloadMessage(accountDto: LegacyAccountDto, item: MessageListItem, complete: Boolean) {
+    /** Same as MessageLoaderHelper.startDownloadingMessageBody(); waits for its callback. */
+    private fun downloadMessage(item: MessageListItem, complete: Boolean) {
         val done = CountDownLatch(1)
-        val listener = object : SimpleMessagingListener() {
-            override fun loadMessageRemoteFinished(account: LegacyAccountDto?, folderId: Long, uid: String?) {
-                done.countDown()
-            }
-
-            override fun loadMessageRemoteFailed(
-                account: LegacyAccountDto?,
-                folderId: Long,
-                uid: String?,
-                t: Throwable?,
-            ) {
-                done.countDown()
-            }
+        val callback = object : MessageBodyDownloader.Callback {
+            override fun onDownloadFinished(message: MessageReference) = done.countDown()
+            override fun onMessageNotFound() = done.countDown()
+            override fun onDownloadFailed() = done.countDown()
         }
-        if (complete) {
-            messagingController.loadMessageRemote(accountDto, item.folderId, item.messageUid, listener)
-        } else {
-            messagingController.loadMessageRemotePartial(accountDto, item.folderId, item.messageUid, listener)
-        }
+        koin.get<MessageBodyDownloader>().download(item.messageReference, complete, callback)
         pump.awaitCondition("downloading '${item.subject}'") { done.count == 0L }
         awaitIdle()
     }
@@ -671,30 +675,13 @@ internal class LegacyScenarioDriver(
             ?: error("The message '$subject' has no attachment named '$fileName'")
 
         if (!attachment.isContentAvailable) {
-            // Same as AttachmentController.downloadAttachment() through DefaultAttachmentLoadingController.
-            val succeeded = AtomicReference<Boolean?>(null)
-            messagingController.loadAttachment(
-                accountDto,
-                message,
-                attachment.part,
-                object : SimpleMessagingListener() {
-                    override fun loadAttachmentFinished(account: LegacyAccountDto?, message: Message?, part: Part?) {
-                        succeeded.set(true)
-                    }
-
-                    override fun loadAttachmentFailed(
-                        account: LegacyAccountDto?,
-                        message: Message?,
-                        part: Part?,
-                        reason: String?,
-                    ) {
-                        succeeded.set(false)
-                    }
-                },
-            )
-            pump.awaitCondition("downloading attachment '$fileName'") { succeeded.get() != null }
+            // Same as AttachmentController.downloadAttachment().
+            val part = checkNotNull(attachment.part)
+            val succeeded = runSuspending("downloading attachment '$fileName'") {
+                koin.get<AttachmentLoadingController>().loadAttachment(part)
+            }
             awaitIdle()
-            if (succeeded.get() == false) return null
+            if (!succeeded) return null
         }
 
         val reloaded = extractForView(loadLocalMessage(accountDto, item)).attachments.single {
@@ -704,10 +691,10 @@ internal class LegacyScenarioDriver(
         return MimeUtility.decodeBody(body).use { it.readBytes() }
     }
 
-    /** Same as LocalMessageLoader, which loads the whole message through the controller. */
+    /** Same as LocalMessageLoader, which loads the whole message. */
     private fun loadLocalMessage(accountDto: LegacyAccountDto, item: MessageListItem): LocalMessage {
         return pump.runInBackground("loading '${item.subject}' from the database") {
-            messagingController.loadMessage(accountDto, item.folderId, item.messageUid)
+            localMessageReader.loadMessage(accountDto, item.folderId, item.messageUid)
         }
     }
 
@@ -741,21 +728,18 @@ internal class LegacyScenarioDriver(
         val accountDto = accountDto(account)
         val folderId = folderId(accountDto, folder)
         val search = textSearch(accountDto, folderId, query)
-        val listener = RemoteSearchListener()
 
-        // Same as LegacyMessageListFragment.onRemoteSearchRequested().
-        messagingControllerWrapper.searchRemoteMessages(
-            accountDto.id,
-            folderId,
-            search.remoteSearchArguments,
-            null,
-            null,
-            listener,
-        )
-        pump.awaitCondition("the server search for '$query'") { listener.finished.count == 0L }
+        // Same as LegacyMessageListFragment.onRemoteSearchRequested(); the list shows the results once it's finished.
+        var failed = false
+        val finished = runSuspending("the server search for '$query'") {
+            remoteContent.searchOnServer(accountDto.id, folderId, search.remoteSearchArguments, null, null)
+                .onEach { event -> if (event is RemoteSearchEvent.Failed) failed = true }
+                .filterIsInstance<RemoteSearchEvent.Finished>()
+                .first()
+        }
         awaitIdle()
 
-        return remoteSearch(account, folder, query, search, extraResults = listener.extraResults, listener.failed)
+        return remoteSearch(account, folder, query, search, extraResults = finished.moreResults, failed)
     }
 
     override fun loadMoreSearchResults(search: ClientRemoteSearch): ClientRemoteSearch {
@@ -771,18 +755,9 @@ internal class LegacyScenarioDriver(
         } else {
             extraResults to emptyList()
         }
-        val done = CountDownLatch(1)
-        messagingControllerWrapper.loadSearchResults(
-            accountDto.id,
-            folderId,
-            toLoad,
-            object : SimpleMessagingListener() {
-                override fun enableProgressIndicator(enable: Boolean) {
-                    if (!enable) done.countDown()
-                }
-            },
-        )
-        pump.awaitCondition("more server search results") { done.count == 0L }
+        runSuspending("more server search results") {
+            remoteContent.loadSearchResults(accountDto.id, folderId, toLoad)
+        }
         awaitIdle()
 
         val textSearch = textSearch(accountDto, folderId, search.query)
@@ -810,31 +785,6 @@ internal class LegacyScenarioDriver(
     private val ClientRemoteSearch.extraResults: List<String>
         get() = state as List<String>
 
-    /** Collects what LegacyMessageListFragment's listener gets from a remote search. */
-    private class RemoteSearchListener : SimpleMessagingListener() {
-        val finished = CountDownLatch(1)
-
-        @Volatile
-        var failed = false
-
-        @Volatile
-        var extraResults: List<String> = emptyList()
-
-        override fun remoteSearchFailed(folderServerId: String?, err: String?) {
-            failed = true
-        }
-
-        override fun remoteSearchFinished(
-            folderId: Long,
-            numResults: Int,
-            maxResults: Int,
-            extraResults: List<String>?,
-        ) {
-            this.extraResults = extraResults.orEmpty()
-            finished.countDown()
-        }
-    }
-
     /** The search MessageHomeActivity builds for a search typed in one folder of one account. */
     private fun textSearch(accountDto: LegacyAccountDto, folderId: Long, query: String) = LocalMessageSearch().apply {
         isManualSearch = true
@@ -858,10 +808,7 @@ internal class LegacyScenarioDriver(
     private fun sendMessage(accountDto: LegacyAccountDto, composition: Composition, draftId: Long?) {
         val message = buildMessage(accountDto, composition, isDraft = false)
         pump.runInBackground("sending '${composition.subject}'") {
-            messagingController.sendMessage(accountDto, message, null, null)
-            if (draftId != null) {
-                messagingController.deleteDraftSkippingTrashFolder(accountDto, draftId)
-            }
+            messageComposeOperations.send(accountDto, message, plaintextSubject = null, draftId = draftId)
         }
         awaitIdle()
     }
@@ -880,7 +827,7 @@ internal class LegacyScenarioDriver(
         check(accountDto.hasDraftsFolder()) { "${accountDto.email} has no drafts folder, so drafts can't be saved" }
         val message = buildMessage(accountDto, composition, isDraft = true)
         pump.runInBackground("saving draft '${composition.subject}'") {
-            messagingController.saveDraft(accountDto, message, existingDraftId, null)
+            messageComposeOperations.saveDraft(accountDto, message, existingDraftId, plaintextSubject = null)
         }
         awaitIdle()
     }
@@ -906,7 +853,7 @@ internal class LegacyScenarioDriver(
         val item = draftItem(account, subject)
 
         // Same as MessageCompose.onDiscard() for a draft that was saved before.
-        messagingController.deleteDraft(accountDto, item.databaseId)
+        messageComposeOperations.deleteDraft(accountDto, item.databaseId)
         awaitIdle()
     }
 
@@ -984,7 +931,7 @@ internal class LegacyScenarioDriver(
 
     override fun refreshFolders(account: ClientAccount) {
         // Same as the refresh action of ManageFoldersFragment.
-        messagingController.refreshFolderList(accountDto(account))
+        mailSynchronizer.requestFolderListRefresh(accountDto(account).id)
         awaitIdle()
     }
 
@@ -1033,7 +980,7 @@ internal class LegacyScenarioDriver(
         val items = messageListItems(account, folder)
 
         // Same as LegacyMessageListFragment when it shows messages: it checks their accounts for auth problems.
-        items.map { it.account.id }.toSet().forEach(messagingControllerWrapper::checkAuthenticationProblem)
+        items.map { it.account.id }.toSet().forEach(mailSynchronizer::checkAuthenticationProblem)
         awaitIdle()
 
         return items.map { it.toClientMessage() }
@@ -1080,15 +1027,15 @@ internal class LegacyScenarioDriver(
     private fun checkCopyOrMovePossible(item: MessageListItem, operation: FolderOperation) {
         when (operation) {
             FolderOperation.MOVE -> {
-                check(messagingControllerWrapper.isMoveCapable(item.account.id)) { "The account can't move messages" }
-                check(messagingControllerWrapper.isMoveCapable(item.messageReference)) {
+                check(capabilities.isMoveCapable(item.account.id)) { "The account can't move messages" }
+                check(capabilities.isMoveCapable(item.messageReference)) {
                     "The message '${item.subject}' can't be moved yet (not synced)"
                 }
             }
 
             FolderOperation.COPY -> {
-                check(messagingControllerWrapper.isCopyCapable(item.account.id)) { "The account can't copy messages" }
-                check(messagingControllerWrapper.isCopyCapable(item.messageReference)) {
+                check(capabilities.isCopyCapable(item.account.id)) { "The account can't copy messages" }
+                check(capabilities.isCopyCapable(item.messageReference)) {
                     "The message '${item.subject}' can't be copied yet (not synced)"
                 }
             }
@@ -1172,6 +1119,21 @@ internal class LegacyScenarioDriver(
 
     override fun awaitIdle() {
         remoteWorkQueue.awaitIdle(pump)
+    }
+
+    /** Starts [change] like the UI does, see `launchUserChange`, and waits until the call returns. */
+    private fun userChange(change: suspend () -> Unit) {
+        runSuspending("a change to messages") { change() }
+    }
+
+    /** Runs [block] on the main thread like UI code does, and waits for its result. */
+    private fun <T> runSuspending(description: String, block: suspend () -> T): T {
+        val result = AtomicReference<Result<T>?>(null)
+        appCoroutineScope.launchUserChange {
+            result.set(runCatching { block() })
+        }
+        pump.awaitCondition(description) { result.get() != null }
+        return checkNotNull(result.get()).getOrThrow()
     }
 
     /** Maps the name shown in the app back to a logical path, using the server's hierarchy delimiter. */
