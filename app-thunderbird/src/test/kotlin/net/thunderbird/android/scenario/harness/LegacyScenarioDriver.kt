@@ -694,7 +694,11 @@ internal class LegacyScenarioDriver(
 
     private fun messageContent(viewInfo: MessageViewInfo): ClientMessageContent = ClientMessageContent(
         subject = viewInfo.subject,
-        text = viewInfo.text?.let { Html.fromHtml(it, Html.FROM_HTML_MODE_LEGACY).toString().trim() },
+        text = viewInfo.text?.let { html ->
+            // The message view's HTML starts with its own style sheet, which isn't part of what the user reads.
+            val content = html.replace(HEAD_AND_STYLE, "")
+            Html.fromHtml(content, Html.FROM_HTML_MODE_LEGACY).toString().trim()
+        },
         isComplete = !viewInfo.isMessageIncomplete,
         attachments = viewInfo.attachments.map { attachment ->
             ClientAttachment(
@@ -1158,6 +1162,8 @@ internal class LegacyScenarioDriver(
 
     private companion object {
         val DEFAULT_TIMEOUT = 2.minutes
+        val HEAD_AND_STYLE =
+            Regex("<head.*?</head>|<style.*?</style>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         const val MESSAGE_DISPLAY_COUNT = 25
     }
 }

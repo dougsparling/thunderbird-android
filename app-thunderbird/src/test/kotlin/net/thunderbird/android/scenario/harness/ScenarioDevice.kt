@@ -6,7 +6,9 @@ import android.app.Application
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.Service
+import android.content.ContentProvider
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -80,6 +82,7 @@ class ScenarioDevice internal constructor(
     private var isOnline = true
 
     init {
+        startContentProviders()
         setNetworkCapabilities()
         AppPermission.entries.forEach { permission -> applyPermission(permission, permission.grantedByDefault) }
     }
@@ -123,11 +126,19 @@ class ScenarioDevice internal constructor(
         settle()
     }
 
-    /** The notifications the user currently sees. */
+    /**
+     * The notifications the user currently sees. Like the notification shade, a group's summary notification isn't
+     * counted while the group's own notifications are shown.
+     */
     fun notifications(): List<ClientNotification> {
         settle()
         val notificationManager = application.getSystemService(NotificationManager::class.java)
-        return notificationManager.activeNotifications.map { statusBarNotification ->
+        val active = notificationManager.activeNotifications.toList()
+        val groupsWithChildren = active
+            .filter { !it.notification.isGroupSummary && it.notification.group != null }
+            .mapTo(mutableSetOf()) { it.notification.group }
+        val visible = active.filterNot { it.notification.isGroupSummary && it.notification.group in groupsWithChildren }
+        return visible.map { statusBarNotification ->
             val notification = statusBarNotification.notification
             ClientNotification(
                 title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
@@ -321,6 +332,24 @@ class ScenarioDevice internal constructor(
         }
     }
 
+    /**
+     * Creates the app's content providers, as Android does when it starts the app; Robolectric doesn't. Library
+     * providers (androidx) are left out: they initialize libraries such as WorkManager, which the scenario replaces.
+     */
+    private fun startContentProviders() {
+        val packageInfo = application.packageManager.getPackageInfo(
+            application.packageName,
+            PackageManager.GET_PROVIDERS,
+        )
+        packageInfo.providers.orEmpty()
+            .filterNot { it.name.startsWith("androidx.") }
+            .forEach { providerInfo ->
+                @Suppress("UNCHECKED_CAST")
+                val providerClass = Class.forName(providerInfo.name) as Class<ContentProvider>
+                Robolectric.buildContentProvider(providerClass).create(providerInfo)
+            }
+    }
+
     /** Gives the active network internet access, which Robolectric's default network lacks. Returns the network. */
     private fun setNetworkCapabilities(): Network {
         val network = checkNotNull(connectivityManager.activeNetwork) { "No active network" }
@@ -363,6 +392,9 @@ data class ClientNotification(
     val actions: List<String> = emptyList(),
     internal val key: String = "",
 )
+
+private val Notification.isGroupSummary: Boolean
+    get() = flags and Notification.FLAG_GROUP_SUMMARY != 0
 
 private val AppPermission.runtimePermission: String?
     get() = when (this) {
