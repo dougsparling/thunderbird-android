@@ -54,43 +54,27 @@ Until it's deleted it reaches the engine through temporary seam interfaces in `l
   versions still read (the reflective adapter wrote fields alphabetically, with `databaseId`, which is now ignored);
   `PendingCommandSerializerTest` pins that with the exact old JSON. New rows use constructor order without
   `databaseId`. Suite: 105/105.
-- **Slice 4, step 2 (next): Kotlin implementation in `:internal`, bound instead of the adapters.** Design worked
-  out, no code yet. Package `net.thunderbird.feature.mail.sync.internal`:
-  - `AccountStores`: replaces `LegacyAccounts`; account by `AccountId`/UUID (same cached instance), all accounts,
-    `saveAccount` (via `LegacyAccountDtoManager`, which `Preferences` implements), backend, `LocalStore`,
-    `MessageStore`, folder ID <-> server ID, and `notifyChanged(account)` =
-    `MessageListRepository.notifyMessageListChanged` (what `notifyFolderStatusChanged` does now).
-  - `SyncEventBus`: replaces the listener set and `MemorizingMessagingListener`: `emit(SyncEvent)` memorizes per
-    `uuid:folderId` (started/finished/failed + progress) and delivers under a lock; `observe()` is a `callbackFlow`
-    that replays like `refreshOther()` and then gets live events; `forgetAccount()` for `onAccountRemoved`.
-  - `ServerErrorNotifier`: `handleAuthenticationFailure` (OAuth migration, in-app notification via
-    `NotificationManager.send` on a Main.immediate scope after creating it with `runBlocking`, like the compat
-    classes did; old controller notification behind the feature flags), `handleException`,
-    `notifyUserIfCertificateProblem`, `isAuthenticationProblem`, `checkAuthenticationProblem`.
-  - `PendingCommandQueue` (`add`, `processInBackground` = old `processPendingCommands`, `processNow` = old
-    `processPendingCommandsSynchronous` incl. certificate notification) and `PendingCommandProcessor` (the
-    `processPending*` methods, `processPendingReplace` from `DraftOperations`, `destroyPlaceholderMessages`; `when` on
-    the sealed `PendingCommand`). Work goes straight to `RemoteWorkSerializer` (`put` = FOREGROUND,
-    `putBackground` = BACKGROUND).
-  - One class per contract: `DefaultMessageCapabilities`, `DefaultMessageFlagRepository`,
-    `DefaultMessageMoveRepository` (+ archive, `moveToDrafts`; shared `MessageMover` = `moveOrCopyMessageSynchronous`
-    + `queueMoveOrCopy`, also used by delete), `DefaultMessageDeleteRepository` (exposes
-    `deleteMessages(refs, skipTrashFolder)` for drafts), `DefaultMessageDraftRepository`, `DefaultOutboxSender`
-    (exposes the background send for `checkMail`), `DefaultMailSynchronizer` (+ `FolderSyncListener` = port of
-    `ControllerSyncListener`), `DefaultRemoteContentRepository` (search as a `flow` on IO with `runInterruptible`;
-    attachment progress as a `MutableSharedFlow`; port `ProgressBodyFactory`), `DefaultNewMailNotifications`
-    (`NotificationOperations`). Shared helper for grouping references by account/folder, threads, and
-    `MessageListCache` hide/flag calls (kept, see "Open items").
-  - Keep the controller's exact order of local writes, cache updates, queueing, events and notifications.
-    Per-call listeners become return values: `checkMail` completes when "finalize sync" runs; `syncPeriodically`
-    tracks its own folder-sync failures (the `ControllerSyncListener.syncFailed` path and the
-    pending-command-failure path in `syncFolder`, which only told the per-call listener and NPE'd without one;
-    don't emit that one globally). `checkMailStarted` is emitted on the caller's thread before queueing.
-  - Inject `PowerManager` (`com.fsck.k9.mail.power`), `Logger` (+ `named("syncDebug")`), `Clock`,
-    `FeatureFlagProvider`, `NotificationController`, `NotificationStrategy`, `OutboxFolderManager`,
-    `SaveMessageDataCreator`, `LocalDeleteOperationDecider`, `LocalMessageUidPrefixProvider`, `LocalMessageReader`,
-    the app scope. The account's `toString()` is privacy-safe for logs.
-- **Slice 4, step 3:** delete `MessagingController`, `ArchiveOperations`, `DraftOperations`,
+- **Slice 4, step 2 (done):** the contracts are implemented in `:internal` (package
+  `net.thunderbird.feature.mail.sync.internal`) and bound instead of the `...internal.legacy` adapters; the
+  controller is still in the code base but nothing creates it any more. Classes: `AccountStores`, `SyncEventBus`
+  (memorizes folder sync state like `MemorizingMessagingListener`, replays it to new observers), `ServerErrorNotifier`,
+  `PendingCommandQueue` + `PendingCommandProcessor` (still a `PendingCommandExecutor` for `PendingCommandReplay`),
+  `LocalMessages` (grouping by account/folder, threads, `MessageListCache` calls), `MessageMover`, one `Default...`
+  class per contract, `FolderSyncListener` (port of `ControllerSyncListener`), `ProgressBodyFactory`.
+  Order of local writes, cache updates, queueing, events and notifications is the controller's. Differences:
+  - Listener callbacks nothing observed are gone (`folderStatusChanged` is only the message store signal,
+    `synchronizeMailboxNewMessage`/`RemovedMessage`/`HeadersStarted` aren't emitted). `syncPeriodically` records
+    failures in `FolderSyncFailures`; the pending-command failure in `syncFolder` only goes there (no NPE without a
+    per-call listener).
+  - Work that ran on the controller's thread pool: server search is a `channelFlow` on IO with `runInterruptible`,
+    `loadSearchResults` runs on IO, removing the notification of an opened message is launched on the app scope (IO).
+  - A permanent send failure without a message stores an empty error instead of throwing (Java passed `null` into a
+    non-null Kotlin parameter).
+  - The remote search log line no longer contains the query.
+  - Dispatchers are constructor parameters with defaults, so Koin's `verify()` accepts them.
+  Suite: 105/105 (one run had the known push timeout, `PushResumesAfterDisconnectScenarioTest`; it passed alone and
+  in the next full run).
+- **Slice 4, step 3 (next):** delete `MessagingController`, `ArchiveOperations`, `DraftOperations`,
   `NotificationOperations`, `MemorizingMessagingListener`, `ControllerExtension` (+ `TestApp` binding,
   `controllerExtensions` in `LegacyCommonAppModule`), `ControllerEngine`/`SerializerControllerEngine`/
   `FakeControllerEngine`, `ProgressBodyFactory`, `MessagingControllerTest` (mock-based; scenarios cover it), the
