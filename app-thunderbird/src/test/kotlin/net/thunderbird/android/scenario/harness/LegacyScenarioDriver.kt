@@ -31,7 +31,7 @@ import net.thunderbird.components.core.outcome.fold
 import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.core.android.account.SortType
 import net.thunderbird.core.common.mail.Flag
-import net.thunderbird.feature.mail.folder.api.FolderType
+import net.thunderbird.feature.mail.folder.FolderType
 import net.thunderbird.feature.mail.folder.api.data.repository.FolderDetailsRepository
 import net.thunderbird.feature.search.legacy.LocalMessageSearch
 import net.thunderbird.mail.testserver.fixture.FolderPath
