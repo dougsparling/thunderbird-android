@@ -48,14 +48,55 @@ Until it's deleted it reaches the engine through temporary seam interfaces in `l
   message store's change signal (`MessageListRepository`) instead of `folderStatusChanged()`; the controller raises
   the signal wherever it called that. Sync progress reaches the UI as `SyncEvent`s, results as suspend returns.
   `MessageListCache` stays for now, see "Open items". Suite: 105/105.
-- **Slice 4 (next):** port the controller and its helpers to Kotlin in `:internal`, implementing the contracts
-  directly (one class per contract, plus shared pieces: account stores and backends, a `SyncEventBus` replacing the
-  listener set and `MemorizingMessagingListener`, server-error notifications, and a pending-command queue whose
-  processor dispatches on the command type instead of `PendingCommand.execute(controller)`). The command classes
-  become Kotlin data classes in `legacy:core` (`LocalStore` and storage migrations use them) with Moshi codegen
-  adapters that read and write the same JSON. Per-call listeners become return values (e.g. a check's sync failures
-  for `syncPeriodically`). `MailSyncWorker` becomes a `CoroutineWorker`. Then delete the controller, its helpers, the
-  `ControllerEngine` seam and the adapters, and the listener types nothing uses any more.
+- **Slice 4, step 1 (done):** pending commands are Kotlin data classes (`com.fsck.k9.controller.PendingCommands.kt`,
+  same names and fields, no `execute(controller)`; the Java controller dispatches with `instanceof` for now).
+  `PendingCommandSerializer` is hand-written Kotlin (Moshi codegen isn't in the offline cache) and writes exactly
+  what Moshi's reflective adapter wrote: fields alphabetical, `databaseId` included, nulls left out (checked against
+  the old Java shape; `PendingCommandSerializerTest` pins it). Suite: 105/105.
+- **Slice 4, step 2 (next): Kotlin implementation in `:internal`, bound instead of the adapters.** Design worked
+  out, no code yet. Package `net.thunderbird.feature.mail.sync.internal`:
+  - `AccountStores`: replaces `LegacyAccounts`; account by `AccountId`/UUID (same cached instance), all accounts,
+    `saveAccount` (via `LegacyAccountDtoManager`, which `Preferences` implements), backend, `LocalStore`,
+    `MessageStore`, folder ID <-> server ID, and `notifyChanged(account)` =
+    `MessageListRepository.notifyMessageListChanged` (what `notifyFolderStatusChanged` does now).
+  - `SyncEventBus`: replaces the listener set and `MemorizingMessagingListener`: `emit(SyncEvent)` memorizes per
+    `uuid:folderId` (started/finished/failed + progress) and delivers under a lock; `observe()` is a `callbackFlow`
+    that replays like `refreshOther()` and then gets live events; `forgetAccount()` for `onAccountRemoved`.
+  - `ServerErrorNotifier`: `handleAuthenticationFailure` (OAuth migration, in-app notification via
+    `NotificationManager.send` on a Main.immediate scope after creating it with `runBlocking`, like the compat
+    classes did; old controller notification behind the feature flags), `handleException`,
+    `notifyUserIfCertificateProblem`, `isAuthenticationProblem`, `checkAuthenticationProblem`.
+  - `PendingCommandQueue` (`add`, `processInBackground` = old `processPendingCommands`, `processNow` = old
+    `processPendingCommandsSynchronous` incl. certificate notification) and `PendingCommandProcessor` (the
+    `processPending*` methods, `processPendingReplace` from `DraftOperations`, `destroyPlaceholderMessages`; `when` on
+    the sealed `PendingCommand`). Work goes straight to `RemoteWorkSerializer` (`put` = FOREGROUND,
+    `putBackground` = BACKGROUND).
+  - One class per contract: `DefaultMessageCapabilities`, `DefaultMessageFlagRepository`,
+    `DefaultMessageMoveRepository` (+ archive, `moveToDrafts`; shared `MessageMover` = `moveOrCopyMessageSynchronous`
+    + `queueMoveOrCopy`, also used by delete), `DefaultMessageDeleteRepository` (exposes
+    `deleteMessages(refs, skipTrashFolder)` for drafts), `DefaultMessageDraftRepository`, `DefaultOutboxSender`
+    (exposes the background send for `checkMail`), `DefaultMailSynchronizer` (+ `FolderSyncListener` = port of
+    `ControllerSyncListener`), `DefaultRemoteContentRepository` (search as a `flow` on IO with `runInterruptible`;
+    attachment progress as a `MutableSharedFlow`; port `ProgressBodyFactory`), `DefaultNewMailNotifications`
+    (`NotificationOperations`). Shared helper for grouping references by account/folder, threads, and
+    `MessageListCache` hide/flag calls (kept, see "Open items").
+  - Keep the controller's exact order of local writes, cache updates, queueing, events and notifications.
+    Per-call listeners become return values: `checkMail` completes when "finalize sync" runs; `syncPeriodically`
+    tracks its own folder-sync failures (the `ControllerSyncListener.syncFailed` path and the
+    pending-command-failure path in `syncFolder`, which only told the per-call listener and NPE'd without one;
+    don't emit that one globally). `checkMailStarted` is emitted on the caller's thread before queueing.
+  - Inject `PowerManager` (`com.fsck.k9.mail.power`), `Logger` (+ `named("syncDebug")`), `Clock`,
+    `FeatureFlagProvider`, `NotificationController`, `NotificationStrategy`, `OutboxFolderManager`,
+    `SaveMessageDataCreator`, `LocalDeleteOperationDecider`, `LocalMessageUidPrefixProvider`, `LocalMessageReader`,
+    the app scope. The account's `toString()` is privacy-safe for logs.
+- **Slice 4, step 3:** delete `MessagingController`, `ArchiveOperations`, `DraftOperations`,
+  `NotificationOperations`, `MemorizingMessagingListener`, `ControllerExtension` (+ `TestApp` binding,
+  `controllerExtensions` in `LegacyCommonAppModule`), `ControllerEngine`/`SerializerControllerEngine`/
+  `FakeControllerEngine`, `ProgressBodyFactory`, `MessagingControllerTest` (mock-based; scenarios cover it), the
+  `...internal.legacy` adapters, and listener types nothing uses any more (`MessagingListener`,
+  `SimpleMessagingListener`, `MessagingControllerRegistry`, `MessagingControllerMailChecker` in `legacy:message`).
+  `MailSyncWorker` becomes a `CoroutineWorker`. Update the comment in `UpgradeDatabaseActivity` and
+  `ScenarioApplication`.
 
 ## Open items
 
@@ -63,5 +104,8 @@ Until it's deleted it reaches the engine through temporary seam interfaces in `l
   that's already running download the moved message again into the source folder, until the next sync removes it.
   Today the cache hides the message and the local move runs after that sync. The suite can't see this (it waits for
   idle), so it needs a deliberate decision, e.g. together with per-message reconciliation.
+- **New flake:** `FolderSyncedTooRecentlyScenarioTest` failed once in a full run while provisioning the test server
+  (`IMAP LOGIN failed ... Invalid login/password` from the provisioning client, before any app code ran); it passed
+  on its own.
 - **Not run offline:** `:legacy:ui:legacy` unit tests (Robolectric wants an Android SDK jar that isn't cached) and
   `:feature:navigation:drawer:dropdown` unit tests (`ui-test-junit4` isn't cached).
