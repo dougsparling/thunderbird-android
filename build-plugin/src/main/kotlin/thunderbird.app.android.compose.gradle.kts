@@ -50,17 +50,17 @@ dependencies {
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
-    implementation(libs.bundles.shared.android.app)
-    implementation(libs.bundles.shared.android.app.compose)
-    implementation(libs.bundles.shared.tmc.components)
+    implementation(bundle("shared-android-app"))
+    implementation(bundle("shared-android-app-compose"))
+    implementation(bundle("shared-tmc-components"))
 
-    debugImplementation(libs.bundles.shared.android.app.compose.debug)
+    debugImplementation(bundle("shared-android-app-compose-debug"))
 
-    testImplementation(libs.bundles.shared.android.app.test)
-    testImplementation(libs.bundles.shared.android.app.compose.test)
-    testImplementation(libs.bundles.shared.tmc.components.test)
+    testImplementation(bundle("shared-android-app-test"))
+    testImplementation(bundle("shared-android-app-compose-test"))
+    testImplementation(bundle("shared-tmc-components-test"))
 
-    androidTestImplementation(libs.bundles.shared.android.app.compose.androidTest)
+    androidTestImplementation(bundle("shared-android-app-compose-androidTest"))
 
     implementation(libs.androidx.activity.compose)
 

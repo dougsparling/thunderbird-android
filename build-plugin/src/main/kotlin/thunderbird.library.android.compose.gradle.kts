@@ -33,17 +33,17 @@ dependencies {
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
-    implementation(libs.bundles.shared.android)
-    implementation(libs.bundles.shared.android.compose)
-    implementation(libs.bundles.shared.tmc.components)
+    implementation(bundle("shared-android"))
+    implementation(bundle("shared-android-compose"))
+    implementation(bundle("shared-tmc-components"))
 
-    debugImplementation(libs.bundles.shared.android.compose.debug)
+    debugImplementation(bundle("shared-android-compose-debug"))
 
-    testImplementation(libs.bundles.shared.android.test)
-    testImplementation(libs.bundles.shared.android.compose.test)
-    testImplementation(libs.bundles.shared.tmc.components.test)
+    testImplementation(bundle("shared-android-test"))
+    testImplementation(bundle("shared-android-compose-test"))
+    testImplementation(bundle("shared-tmc-components-test"))
 
-    androidTestImplementation(libs.bundles.shared.android.compose.androidTest)
+    androidTestImplementation(bundle("shared-android-compose-androidTest"))
 
     if (!isComponentsBuild) {
         implementation(libs.tb.mobile.components.ui.bolt)

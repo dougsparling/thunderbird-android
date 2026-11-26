@@ -70,11 +70,11 @@ dependencies {
     implementation(platform(libs.koin.bom))
     implementation(platform(libs.tb.mobile.components.bom))
 
-    implementation(libs.bundles.shared.android)
-    implementation(libs.bundles.shared.tmc.components)
+    implementation(bundle("shared-android"))
+    implementation(bundle("shared-tmc-components"))
 
-    testImplementation(libs.bundles.shared.android.test)
-    testImplementation(libs.bundles.shared.tmc.components.test)
+    testImplementation(bundle("shared-android-test"))
+    testImplementation(bundle("shared-tmc-components-test"))
 }
 
 tasks.register("testsOnCi") {

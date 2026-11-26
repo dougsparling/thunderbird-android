@@ -39,29 +39,29 @@ kotlin {
             implementation(project.dependencies.platform(libs.koin.bom))
             implementation(project.dependencies.platform(libs.tb.mobile.components.bom))
 
-            implementation(libs.bundles.shared.kmp.common)
-            implementation(libs.bundles.shared.tmc.components)
+            implementation(bundle("shared-kmp-common"))
+            implementation(bundle("shared-tmc-components"))
         }
 
         commonTest.dependencies {
-            implementation(libs.bundles.shared.kmp.common.test)
-            implementation(libs.bundles.shared.tmc.components.test)
+            implementation(bundle("shared-kmp-common-test"))
+            implementation(bundle("shared-tmc-components-test"))
         }
 
         androidMain.dependencies {
-            implementation(libs.bundles.shared.kmp.android)
+            implementation(bundle("shared-kmp-android"))
         }
 
         androidHostTest.dependencies {
-            implementation(libs.bundles.shared.kmp.android.test)
+            implementation(bundle("shared-kmp-android-test"))
         }
 
         jvmMain.dependencies {
-            implementation(libs.bundles.shared.kmp.jvm)
+            implementation(bundle("shared-kmp-jvm"))
         }
 
         jvmTest.dependencies {
-            implementation(libs.bundles.shared.kmp.jvm.test)
+            implementation(bundle("shared-kmp-jvm-test"))
         }
     }
 }

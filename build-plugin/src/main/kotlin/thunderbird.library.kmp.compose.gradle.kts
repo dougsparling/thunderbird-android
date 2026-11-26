@@ -45,8 +45,8 @@ kotlin {
             implementation(project.dependencies.platform(libs.koin.bom))
             implementation(project.dependencies.platform(libs.tb.mobile.components.bom))
 
-            implementation(libs.bundles.shared.kmp.common)
-            implementation(libs.bundles.shared.kmp.compose.common)
+            implementation(bundle("shared-kmp-common"))
+            implementation(bundle("shared-kmp-compose-common"))
 
             implementation(libs.jetbrains.compose.runtime)
             implementation(libs.jetbrains.compose.foundation)
@@ -54,41 +54,41 @@ kotlin {
             implementation(libs.jetbrains.compose.components.resources)
             implementation(libs.jetbrains.compose.components.ui.preview)
 
-            implementation(libs.bundles.shared.tmc.components)
+            implementation(bundle("shared-tmc-components"))
             if (!isComponentsBuild) {
                 implementation(libs.tb.mobile.components.ui.bolt)
             }
         }
 
         commonTest.dependencies {
-            implementation(libs.bundles.shared.kmp.common.test)
-            implementation(libs.bundles.shared.kmp.compose.common.test)
+            implementation(bundle("shared-kmp-common-test"))
+            implementation(bundle("shared-kmp-compose-common-test"))
 
-            implementation(libs.bundles.shared.tmc.components.test)
+            implementation(bundle("shared-tmc-components-test"))
             if (!isComponentsBuild) {
                 implementation(libs.tb.mobile.components.ui.testing)
             }
         }
 
         androidMain.dependencies {
-            implementation(libs.bundles.shared.kmp.android)
-            implementation(libs.bundles.shared.kmp.compose.android)
+            implementation(bundle("shared-kmp-android"))
+            implementation(bundle("shared-kmp-compose-android"))
         }
 
         androidHostTest.dependencies {
-            implementation(libs.bundles.shared.kmp.android.test)
-            implementation(libs.bundles.shared.kmp.compose.android.test)
+            implementation(bundle("shared-kmp-android-test"))
+            implementation(bundle("shared-kmp-compose-android-test"))
         }
 
         jvmMain.dependencies {
-            implementation(libs.bundles.shared.kmp.jvm)
-            implementation(libs.bundles.shared.kmp.compose.jvm)
+            implementation(bundle("shared-kmp-jvm"))
+            implementation(bundle("shared-kmp-compose-jvm"))
         }
 
         jvmTest.dependencies {
             implementation(compose.desktop.currentOs)
-            implementation(libs.bundles.shared.kmp.jvm.test)
-            implementation(libs.bundles.shared.kmp.compose.jvm.test)
+            implementation(bundle("shared-kmp-jvm-test"))
+            implementation(bundle("shared-kmp-compose-jvm-test"))
         }
     }
 }
