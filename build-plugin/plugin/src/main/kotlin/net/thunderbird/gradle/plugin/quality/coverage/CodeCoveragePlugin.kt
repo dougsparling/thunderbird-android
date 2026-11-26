@@ -21,11 +21,12 @@ import org.gradle.process.JavaForkOptions
  *
  * It sets up default coverage thresholds and allows for customization via the [CodeCoverageExtension].
  *
- * The plugin is disabled by default. It can be globally enabled using a Gradle property or environment variable:
+ * Coverage is disabled by default and Kover is only applied when it is enabled for the build, using a Gradle property
+ * or environment variable:
  *  - Gradle property: `-PcodeCoverageDisabled=false`
  *  - Environment variable: `CODE_COVERAGE_DISABLED=false`
  *
- * Example usage in a build script to enable it:
+ * Example usage in a build script:
  *
  * ```kotlin
  * plugins {
@@ -33,7 +34,7 @@ import org.gradle.process.JavaForkOptions
  * }
  *
  * codeCoverage {
- *    disabled.set(false) // Enable coverage
+ *    disabled.set(true) // Opt this module out when coverage is enabled for the build
  *    lineCoverage = 80 // Set line coverage threshold
  *    branchCoverage = 70 // Set branch coverage threshold
  * }
@@ -48,20 +49,23 @@ class CodeCoveragePlugin : Plugin<Project> {
             .map { it.equals("true", ignoreCase = true) }
         val disabledProvider = environmentProperty.orElse(gradleProperty).orElse(true)
 
-        extension.disabled.convention(disabledProvider)
         extension.initialize()
+        extension.disabled.convention(disabledProvider)
         extension.finalizeValueOnRead()
+
+        // Ensure forked JVMs (tests + kover verify daemons) get a larger CodeCache, with or without coverage
+        target.configureCodeCacheForForkedJvms(
+            reservedCodeCacheSize = "256m",
+            initialCodeCacheSize = "128m",
+        )
+
+        // skip Kover config when disabled
+        if (disabledProvider.get()) return
 
         with(target) {
             with(pluginManager) {
                 apply(KoverGradlePlugin::class)
             }
-
-            // Ensure forked JVMs (tests + kover verify daemons) get a larger CodeCache
-            configureCodeCacheForForkedJvms(
-                reservedCodeCacheSize = "256m",
-                initialCodeCacheSize = "128m",
-            )
 
             // Defer configuration until after all build scripts had a chance
             // to configure the `codeCoverage { ... }` extension.

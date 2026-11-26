@@ -346,13 +346,13 @@ Run Android instrumentation tests:
 Run tests with coverage verification:
 
 ```bash
-./gradlew koverVerifyDebug
+./gradlew koverVerifyDebug -PcodeCoverageDisabled=false
 ```
 
 Generate an HTML coverage report:
 
 ```bash
-./gradlew koverHtmlReportDebug
+./gradlew koverHtmlReportDebug -PcodeCoverageDisabled=false
 ```
 
 ## 📊 Code Coverage
@@ -367,31 +367,31 @@ How to check locally:
 - Verify coverage (fails the build on violations):
 
 ```bash
-./gradlew koverVerifyDebug
+./gradlew koverVerifyDebug -PcodeCoverageDisabled=false
 ```
 
 - For a specific module:
 
   ```bash
-  ./gradlew :module-name:koverVerifyDebug
+  ./gradlew :module-name:koverVerifyDebug -PcodeCoverageDisabled=false
   ```
 - Generate a human-readable HTML report:
 
   ```bash
-  ./gradlew koverHtmlReportDebug
+  ./gradlew koverHtmlReportDebug -PcodeCoverageDisabled=false
   ```
 
-Temporarily disable coverage globally (e.g., for local runs or exceptional CI cases):
+Coverage is disabled by default, and Kover is only applied to the build when it is enabled:
 
 - Using Gradle property:
 
   ```bash
-  ./gradlew check -PcodeCoverageDisabled=true 
+  ./gradlew check -PcodeCoverageDisabled=false
   ```
 - Using environment variable:
 
   ```bash
-  CODE_COVERAGE_DISABLED=true ./gradlew check
+  CODE_COVERAGE_DISABLED=false ./gradlew check
   ```
 
 Where to find reports:
