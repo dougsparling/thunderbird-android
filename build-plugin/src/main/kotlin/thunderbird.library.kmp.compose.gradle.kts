@@ -1,4 +1,5 @@
 import net.thunderbird.gradle.plugin.ProjectConfig
+import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 
 plugins {
     id("com.android.kotlin.multiplatform.library")
@@ -19,6 +20,12 @@ kotlin {
     android {
         compileSdk = ProjectConfig.Android.sdkCompile
         minSdk = ProjectConfig.Android.sdkMin
+
+        // Without this, Android library dependencies resolve to their release variant, so debug app builds compile
+        // those modules a second time.
+        localDependencySelection {
+            selectBuildTypeFrom.set(listOf("debug", "release"))
+        }
 
         androidResources.enable = true
 
@@ -103,4 +110,16 @@ tasks.register("testsOnCi") {
     dependsOn(
         tasks.withType<Test>(),
     )
+}
+
+// The Java source set classpaths of the jvm target don't request a Kotlin platform, so with the debug preference
+// above, dependencies with both Android and desktop variants become ambiguous.
+plugins.withType<JavaBasePlugin> {
+    the<SourceSetContainer>().configureEach {
+        listOf(compileClasspathConfigurationName, runtimeClasspathConfigurationName).forEach { name ->
+            configurations.named(name) {
+                attributes.attribute(KotlinPlatformType.attribute, KotlinPlatformType.jvm)
+            }
+        }
+    }
 }

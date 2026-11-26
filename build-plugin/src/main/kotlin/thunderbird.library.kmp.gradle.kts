@@ -18,6 +18,12 @@ kotlin {
         compileSdk = ProjectConfig.Android.sdkCompile
         minSdk = ProjectConfig.Android.sdkMin
 
+        // Without this, Android library dependencies resolve to their release variant, so debug app builds compile
+        // those modules a second time.
+        localDependencySelection {
+            selectBuildTypeFrom.set(listOf("debug", "release"))
+        }
+
         withHostTest {
             isIncludeAndroidResources = true
         }
