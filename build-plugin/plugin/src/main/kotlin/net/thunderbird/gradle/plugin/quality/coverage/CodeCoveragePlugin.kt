@@ -10,10 +10,8 @@ import net.thunderbird.gradle.plugin.quality.coverage.filter.commonFilter
 import net.thunderbird.gradle.plugin.quality.coverage.filter.composeFilter
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.api.tasks.testing.Test
 import org.gradle.kotlin.dsl.apply
 import org.gradle.kotlin.dsl.create
-import org.gradle.kotlin.dsl.withType
 import org.gradle.process.JavaForkOptions
 
 /**
@@ -53,12 +51,6 @@ class CodeCoveragePlugin : Plugin<Project> {
         extension.disabled.convention(disabledProvider)
         extension.finalizeValueOnRead()
 
-        // Ensure forked JVMs (tests + kover verify daemons) get a larger CodeCache, with or without coverage
-        target.configureCodeCacheForForkedJvms(
-            reservedCodeCacheSize = "256m",
-            initialCodeCacheSize = "128m",
-        )
-
         // skip Kover config when disabled
         if (disabledProvider.get()) return
 
@@ -66,6 +58,12 @@ class CodeCoveragePlugin : Plugin<Project> {
             with(pluginManager) {
                 apply(KoverGradlePlugin::class)
             }
+
+            // Ensure forked Kover JVMs get a larger CodeCache
+            configureCodeCacheForKoverJvms(
+                reservedCodeCacheSize = "256m",
+                initialCodeCacheSize = "128m",
+            )
 
             // Defer configuration until after all build scripts had a chance
             // to configure the `codeCoverage { ... }` extension.
@@ -143,9 +141,9 @@ class CodeCoveragePlugin : Plugin<Project> {
     }
 
     /**
-     * Ensure forked JVMs (tests + kover verify daemons) get a larger CodeCache.
+     * Ensure forked Kover JVMs get a larger CodeCache. Test JVMs get theirs from the convention plugins.
      */
-    private fun Project.configureCodeCacheForForkedJvms(
+    private fun Project.configureCodeCacheForKoverJvms(
         reservedCodeCacheSize: String,
         initialCodeCacheSize: String,
     ) {
@@ -153,12 +151,6 @@ class CodeCoveragePlugin : Plugin<Project> {
             "-XX:ReservedCodeCacheSize=$reservedCodeCacheSize",
             "-XX:InitialCodeCacheSize=$initialCodeCacheSize",
         )
-
-        // Tests are the most common forked JVM used under koverVerify
-        tasks.withType<Test>().configureEach {
-            // Avoid overwriting if someone else already added jvmArgs
-            jvmArgs = jvmArgs + args
-        }
 
         // Kover-related tasks that fork JVMs (varies by Kover version)
         tasks.matching { it.name.contains("kover", ignoreCase = true) }.configureEach {

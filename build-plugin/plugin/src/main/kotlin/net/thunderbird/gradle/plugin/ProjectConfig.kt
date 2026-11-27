@@ -47,9 +47,17 @@ object ProjectConfig {
         private const val ADD_OPENS_JDK_INTERNAL_ACCESS_ALL_UNNAMED =
             "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED"
 
+        /**
+         * Without C2 the JVM sizes the CodeCache for a client VM, which Robolectric tests run out of.
+         */
+        private val CODE_CACHE_SIZE = listOf(
+            "-XX:ReservedCodeCacheSize=256m",
+            "-XX:InitialCodeCacheSize=128m",
+        )
+
         val robolectricJvmArgs = listOf(
             DISABLE_C2_COMPILER,
             ADD_OPENS_JDK_INTERNAL_ACCESS_ALL_UNNAMED,
-        )
+        ) + CODE_CACHE_SIZE
     }
 }
